@@ -1,0 +1,19 @@
+# build
+backend/build/
+backend/.gradle/
+backend/bin/
+frontend/node_modules/
+frontend/dist/
+# env / secrets
+.env
+.env.*
+!.env.example
+frontend/.env.local
+# ide
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# local agent settings
+.claude/settings.local.json

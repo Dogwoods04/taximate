@@ -1,0 +1,322 @@
+[
+  {
+    "id": "mock-siheung-1",
+    "name": "정왕역 1번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.3517,
+      "lng": 126.7422
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-2",
+    "name": "정왕역 2번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.3513,
+      "lng": 126.7418
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-3",
+    "name": "오이도역 1번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.3627,
+      "lng": 126.7386
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-4",
+    "name": "오이도역 2번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.3622,
+      "lng": 126.7392
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-5",
+    "name": "시흥시청역 1번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.3822,
+      "lng": 126.8056
+    },
+    "address": "경기 시흥시 광석동"
+  },
+  {
+    "id": "mock-siheung-6",
+    "name": "시흥시청역 2번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.3817,
+      "lng": 126.8061
+    },
+    "address": "경기 시흥시 광석동"
+  },
+  {
+    "id": "mock-siheung-7",
+    "name": "월곶역 1번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.3917,
+      "lng": 126.7428
+    },
+    "address": "경기 시흥시 월곶동"
+  },
+  {
+    "id": "mock-siheung-8",
+    "name": "신천역 1번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.4392,
+      "lng": 126.7868
+    },
+    "address": "경기 시흥시 신천동"
+  },
+  {
+    "id": "mock-siheung-9",
+    "name": "시흥능곡역 1번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.3699,
+      "lng": 126.8088
+    },
+    "address": "경기 시흥시 능곡동"
+  },
+  {
+    "id": "mock-siheung-10",
+    "name": "달미역 1번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.3488,
+      "lng": 126.8099
+    },
+    "address": "경기 시흥시 능곡동"
+  },
+  {
+    "id": "mock-siheung-11",
+    "name": "신현역 1번 출구",
+    "kind": "STATION_EXIT",
+    "location": {
+      "lat": 37.4092,
+      "lng": 126.7877
+    },
+    "address": "경기 시흥시 미산동"
+  },
+  {
+    "id": "mock-siheung-12",
+    "name": "배곧 생명공원",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3712,
+      "lng": 126.7275
+    },
+    "address": "경기 시흥시 배곧동"
+  },
+  {
+    "id": "mock-siheung-13",
+    "name": "배곧 한울공원",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3641,
+      "lng": 126.7126
+    },
+    "address": "경기 시흥시 배곧동"
+  },
+  {
+    "id": "mock-siheung-14",
+    "name": "시흥시청",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3801,
+      "lng": 126.8029
+    },
+    "address": "경기 시흥시 장현동"
+  },
+  {
+    "id": "mock-siheung-15",
+    "name": "한국공학대학교",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3401,
+      "lng": 126.7337
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-16",
+    "name": "경기과학기술대학교",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3407,
+      "lng": 126.7378
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-17",
+    "name": "시화호 환경문화센터",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3249,
+      "lng": 126.6898
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-18",
+    "name": "오이도 빨강등대",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3453,
+      "lng": 126.6873
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-19",
+    "name": "은계호수공원",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.4441,
+      "lng": 126.8078
+    },
+    "address": "경기 시흥시 은행동"
+  },
+  {
+    "id": "mock-siheung-20",
+    "name": "목감도서관",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3841,
+      "lng": 126.8586
+    },
+    "address": "경기 시흥시 조남동"
+  },
+  {
+    "id": "mock-siheung-21",
+    "name": "목감행정복지센터",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3875,
+      "lng": 126.8618
+    },
+    "address": "경기 시흥시 목감동"
+  },
+  {
+    "id": "mock-siheung-22",
+    "name": "장곡동 행정복지센터",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3779,
+      "lng": 126.7857
+    },
+    "address": "경기 시흥시 장곡동"
+  },
+  {
+    "id": "mock-siheung-23",
+    "name": "거모동 군자동행정복지센터",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3434,
+      "lng": 126.7847
+    },
+    "address": "경기 시흥시 거모동"
+  },
+  {
+    "id": "mock-siheung-24",
+    "name": "정왕 이마트 시화점",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3478,
+      "lng": 126.7375
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-25",
+    "name": "시흥갯골생태공원",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3918,
+      "lng": 126.7807
+    },
+    "address": "경기 시흥시 장곡동"
+  },
+  {
+    "id": "mock-siheung-26",
+    "name": "시흥종합버스터미널",
+    "kind": "LANDMARK",
+    "location": {
+      "lat": 37.3442,
+      "lng": 126.7331
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-27",
+    "name": "정왕역 버스정류장",
+    "kind": "BUS_STOP",
+    "location": {
+      "lat": 37.3518,
+      "lng": 126.7426
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-28",
+    "name": "오이도역 버스정류장",
+    "kind": "BUS_STOP",
+    "location": {
+      "lat": 37.3628,
+      "lng": 126.7394
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-29",
+    "name": "시흥시청 버스정류장",
+    "kind": "BUS_STOP",
+    "location": {
+      "lat": 37.3804,
+      "lng": 126.8034
+    },
+    "address": "경기 시흥시 장현동"
+  },
+  {
+    "id": "mock-siheung-30",
+    "name": "한국공학대학교 버스정류장",
+    "kind": "BUS_STOP",
+    "location": {
+      "lat": 37.3409,
+      "lng": 126.7337
+    },
+    "address": "경기 시흥시 정왕동"
+  },
+  {
+    "id": "mock-siheung-31",
+    "name": "배곧중심상가 버스정류장",
+    "kind": "BUS_STOP",
+    "location": {
+      "lat": 37.3705,
+      "lng": 126.7294
+    },
+    "address": "경기 시흥시 배곧동"
+  },
+  {
+    "id": "mock-siheung-32",
+    "name": "월곶역 버스정류장",
+    "kind": "BUS_STOP",
+    "location": {
+      "lat": 37.3915,
+      "lng": 126.7434
+    },
+    "address": "경기 시흥시 월곶동"
+  }
+]

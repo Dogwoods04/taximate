@@ -1,0 +1,238 @@
+# Siheung Taxi-Mate — API Contract (MVP v1)
+
+Source of truth for frontend ⇄ backend and between backend modules.
+TypeScript mirror: `frontend/src/api/contract.ts`. Java cross-module interfaces: `backend/.../{identity,trip,rideroom}/api/`.
+Change this file (lead) **before** changing either side.
+
+## Conventions
+
+- Base path `/api`, JSON, camelCase. IDs are UUID strings.
+- Time: ISO-8601 with offset (`2026-11-02T18:30:00+09:00`). Server zone Asia/Seoul.
+- Auth: `Authorization: Bearer <token>` on every `/api/**` call except `POST /api/auth/dev-login`. Missing/invalid → 401 `UNAUTHENTICATED`.
+- Errors: HTTP status + body `{ "code": ErrorCode, "message": string, "details": object }`.
+  ErrorCode values: see `common/error/ErrorCode.java`.
+- Idempotency: `POST /rooms/{id}/join` and `POST /rooms/{id}/confirm` are naturally idempotent
+  (repeat → same 200 result, no duplicate row). Clients may also send `Idempotency-Key` (ignored by server in MVP beyond natural idempotency).
+- **Privacy:** any coordinate describing *another* user is rounded (`approx*`, 3 decimals ≈110m), distances are rounded to 10m,
+  and route polylines have 200m trimmed from both ends. Precise coordinates are returned only to the trip owner.
+  Meeting points are public places and are exact.
+
+## Shared shapes
+
+```ts
+LatLng        { lat: number, lng: number }
+PlaceKind     'GPS' | 'MAP_PICK' | 'SEARCH' | 'BUS_STOP' | 'STATION_EXIT' | 'LANDMARK'
+PlaceRef      { name?: string, address?: string, location: LatLng, kind: PlaceKind, providerPlaceId?: string }
+MeetingPointKind 'BUS_STOP' | 'STATION_EXIT' | 'LANDMARK' | 'CUSTOM'
+MeetingPoint  { id?: string, name: string, kind: MeetingPointKind, location: LatLng, address?: string }
+ProximityTier 'NEAR' (≤200m) | 'EXTENDED' (200–500m)
+```
+
+## Status names (fixed)
+
+| Entity | Values |
+|---|---|
+| TripStatus | DRAFT, SEARCHING, MATCHED, NO_MATCH, CANCELLED, EXPIRED |
+| RoomStatus | OPEN, COORDINATING, CONFIRMED, CLOSED, CANCELLED, EXPIRED |
+| ParticipantRole | HOST, MEMBER |
+| ParticipantStatus | ACTIVE, LEFT, REMOVED |
+| MemberStatus | ACTIVE, RESTRICTED |
+| MemberRole | USER, ADMIN |
+| MessageType | TEXT, SYSTEM |
+| ReportTargetType | ROOM, MESSAGE, MEMBER |
+| ReportReason | SPAM, ABUSE, NO_SHOW, FRAUD, PRIVACY, OTHER |
+| ReportStatus | OPEN, RESOLVED, DISMISSED |
+| ModerationAction | HIDE_ROOM, HIDE_MESSAGE, RESTRICT_MEMBER, DISMISS |
+| FarePolicy | EQUAL_SPLIT, DISTANCE_PRORATED, DISCUSS |
+
+### Trip lifecycle
+`DRAFT →(route ok) SEARCHING ⇄ NO_MATCH`; `SEARCHING|NO_MATCH →(room CONFIRMED) MATCHED`; any active → `CANCELLED` (user / consent withdrawn); active → `EXPIRED` at `desiredDepartureAt + maxWaitMinutes` (scheduler, every minute).
+A member has at most one trip in {DRAFT, SEARCHING, NO_MATCH} → else 409 `ACTIVE_TRIP_EXISTS`.
+
+### Room lifecycle
+`OPEN →(first join) COORDINATING`; `COORDINATING →(last MEMBER leaves) OPEN`;
+`OPEN|COORDINATING →(all ACTIVE participants confirmed current termsVersion, ≥2 participants, meetingPoint set) CONFIRMED`;
+`CONFIRMED → CLOSED` (host); `OPEN|COORDINATING → CANCELLED` (host / host trip cancelled); `OPEN|COORDINATING → EXPIRED` at `departureWindowEnd` (scheduler).
+Changing meeting point / departure / terms increments `termsVersion` and clears all confirmations.
+READ_ONLY = {CONFIRMED, CLOSED, CANCELLED, EXPIRED}: no join, no messages (409 `ROOM_READ_ONLY`).
+
+---
+
+## identity (owner: backend-domain)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/api/auth/dev-login` | `{ nickname: string(2–20) }` | `{ token: string, member: Member }` — creates member if new. Enabled only when `taximate.auth.dev-login-enabled`. Nicknames in `taximate.auth.admin-nicknames` get ADMIN. |
+| GET | `/api/me` | – | `Member` |
+| POST | `/api/me/consents/location` | `{ policyVersion: string }` | `LocationConsent` |
+| DELETE | `/api/me/consents/location` | – | 204. Publishes `LocationConsentWithdrawnEvent` → active trips cancelled. |
+
+```ts
+Member          { id, nickname, role: MemberRole, status: MemberStatus, locationConsent: LocationConsent | null }
+LocationConsent { id, policyVersion, agreedAt }   // only current (non-withdrawn) consent is returned
+```
+
+## places / external-mobility (owner: mobility-matching)
+
+| Method | Path | Query | Response |
+|---|---|---|---|
+| GET | `/api/places/search` | `query` (required), `lat`,`lng` (optional bias) | `PlaceRef[]` (kind `SEARCH`, ≤10) |
+| GET | `/api/places/reverse` | `lat`,`lng` | `PlaceRef` (address filled; kind `MAP_PICK`) |
+
+Kakao REST key never reaches the browser. In `mock` mode results come from fixtures (Siheung: 정왕역, 시흥시청역, 배곧, 월곶역, 오이도역, 시흥시청, 은계, 목감, 장곡 …).
+
+## trip (owner: mobility-matching)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/api/trips` | `CreateTripRequest` | 201 `TripIntent`. Requires consent (428 `LOCATION_CONSENT_REQUIRED`). Computes car route once. If route API fails → trip saved as DRAFT and response still 201 with `route: null` and `routeError: 'ROUTE_UNAVAILABLE'`. |
+| GET | `/api/trips/active` | – | `TripIntent` or 204 |
+| GET | `/api/trips/{id}` | – | `TripIntent` (owner only) |
+| POST | `/api/trips/{id}/route` | – | `TripIntent` — re-search route (DRAFT retry or refresh). 503 `ROUTE_UNAVAILABLE` if provider fails and no unexpired snapshot exists. |
+| POST | `/api/trips/{id}/cancel` | – | `TripIntent` (status CANCELLED) |
+
+```ts
+CreateTripRequest {
+  origin: PlaceRef, destination: PlaceRef,
+  desiredDepartureAt: string,          // now-5min … now+7days
+  maxWaitMinutes: number,              // 0–60, default 15
+  maxDetourMinutes: number,            // 0–30, default 10
+  passengerCount: number               // 1–3
+}
+TripIntent {
+  id, status: TripStatus, origin: PlaceRef, destination: PlaceRef,     // precise: owner only
+  desiredDepartureAt, maxWaitMinutes, maxDetourMinutes, passengerCount,
+  route: RouteSnapshot | null, routeError: 'ROUTE_UNAVAILABLE' | null,
+  expiresAt, createdAt
+}
+RouteSnapshot { id, provider: 'KAKAO' | 'MOCK', distanceMeters, durationSeconds, path: LatLng[], calculatedAt, expiresAt }
+```
+
+## matching (owner: mobility-matching)
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/trips/{id}/candidates` | `MatchCandidatesResponse` (owner only; trip must be SEARCHING/NO_MATCH else 409 `TRIP_NOT_SEARCHABLE`; route expired → 409 `ROUTE_EXPIRED`). Sets trip NO_MATCH when 0 room candidates, SEARCHING otherwise. |
+| GET | `/api/rooms/{roomId}/meeting-point-suggestions` | `MeetingPointSuggestion[]` (ACTIVE participants only) |
+
+Algorithm:
+1. **Spatial hard filter (PostGIS `geography`, meters, GiST):** other members' trips with status ∈ SEARCHABLE, not expired, consent present,
+   `ST_DWithin(origin, mine, 500)` AND `ST_DWithin(destination, mine, 500)`.
+2. **Room lookup:** `RideRoomApi.findJoinableRoomsBySourceTripIds(hostTrips)`; drop rooms with `seatsLeft < my passengerCount`.
+3. **Route hard filters** (config `taximate.matching.*`): direction cosine ≥ 0.7, overlap ratio ≥ 0.5 (fraction of my resampled path within 150m of host path),
+   |departure diff| ≤ min(30, my maxWait + host maxWait), estimated detour ≤ both parties' maxDetourMinutes.
+4. **Score** 0–100 = weighted (origin distance 0.25, destination 0.15, overlap 0.30, departure 0.20, detour 0.10).
+5. **Order:** tier NEAR (origin ≤200m) first, then EXTENDED; within tier by score desc. Max 20.
+6. `similarSearchingCount` = solo SEARCHING trips passing steps 1+3 that are not in any active room (`RideRoomApi.findTripIdsInActiveRooms`).
+
+```ts
+MatchCandidatesResponse {
+  tripId, generatedAt,
+  policy: { priorityRadiusMeters: 200, maxRadiusMeters: 500 },
+  candidates: MatchCandidate[],
+  similarSearchingCount: number
+}
+MatchCandidate {
+  roomId, tier: ProximityTier,
+  originDistanceMeters: number, destinationDistanceMeters: number,   // rounded 10m
+  departureDiffMinutes: number,           // candidate room departure − my desired (signed)
+  overlapRatio: number,                   // 0–1, 2 decimals
+  estimatedDetourMinutes: number,
+  seatsLeft: number, score: number,       // 0–100 integer
+  reasons: string[],                      // short Korean UI chips, e.g. "출발지 120m", "경로 82% 겹침"
+  room: RoomSummary,
+  routePreview: LatLng[]                  // host route, ends trimmed
+}
+MeetingPointSuggestion {
+  point: MeetingPoint, tier: ProximityTier,
+  maxWalkMeters: number,                  // farthest participant origin → point (rounded 10m)
+  walkMinutesMax: number | null,          // walking route for top N only, else estimate
+  walkSource: 'WALKING_API' | 'ESTIMATE'
+}
+```
+Meeting-point candidates: public POIs (station exit / bus stop / landmark) within 500m of the participants' origin centroid,
+NEAR = every participant ≤200m straight-line, EXTENDED = ≤500m. Walking route API only for the top `walking-check-limit` (3).
+
+## ride-room (owner: backend-domain)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/api/rooms` | `CreateRoomRequest` | 201 `RoomDetail`. Source trip must be owner's and SEARCHING/NO_MATCH, not in an active room (409 `ALREADY_IN_ROOM`). |
+| GET | `/api/rooms/mine` | – | `RoomSummary[]` (rooms where I am ACTIVE, status ∈ ACTIVE ∪ recent read-only 24h) |
+| GET | `/api/rooms/{id}` | – | `RoomDetail` (any signed-in user; non-members get only ACTIVE `participants` (same `Participant` shape — no location data) and `routePreview: []`) |
+| POST | `/api/rooms/{id}/join` | `{ tripId }` | `RoomDetail`. Redisson lock `room:{id}` → tx with row lock → re-check status ∈ JOINABLE, seats ≥ trip.passengerCount, not hidden, trip owned & searchable & not in another room. Errors `ROOM_NOT_JOINABLE`, `ROOM_FULL`, `ALREADY_IN_ROOM`. Same member re-join while ACTIVE → 200 same result. |
+| POST | `/api/rooms/{id}/leave` | – | `RoomDetail`. MEMBER only, not after CONFIRMED. Host must cancel instead. |
+| POST | `/api/rooms/{id}/participants/{memberId}/remove` | – | `RoomDetail` (host only, before CONFIRMED) |
+| PUT | `/api/rooms/{id}/plan` | `UpdatePlanRequest` | `RoomDetail` (host only, JOINABLE only). termsVersion++ and confirmations cleared. SYSTEM message posted. |
+| POST | `/api/rooms/{id}/confirm` | `{ termsVersion }` | `RoomDetail`. 409 `TERMS_VERSION_MISMATCH` if stale, 409 `MEETING_POINT_REQUIRED`. When everyone confirmed → CONFIRMED, `TripApi.markMatched`. |
+| POST | `/api/rooms/{id}/close` | – | `RoomDetail` (host, from CONFIRMED) |
+| POST | `/api/rooms/{id}/cancel` | – | `RoomDetail` (host, from OPEN/COORDINATING) |
+
+```ts
+CreateRoomRequest { sourceTripId, capacity: number /*2–4 persons incl. host*/, terms: RoomTerms, departureAt?: string /*default trip.desiredDepartureAt*/ }
+UpdatePlanRequest { meetingPoint: MeetingPoint, departureAt: string, terms: RoomTerms }
+RoomTerms   { farePolicy: FarePolicy, luggageAllowed: boolean, note?: string /*≤200*/ }
+RoomSummary {
+  id, status: RoomStatus, hostNickname,
+  approxOrigin: LatLng, approxDestination: LatLng, originLabel: string, destinationLabel: string,
+  departureAt, departureWindowEnd,        // window end = departureAt + host maxWaitMinutes
+  capacity, seatsLeft, participantCount,
+  terms: RoomTerms, meetingPoint: MeetingPoint | null
+}
+RoomDetail extends RoomSummary {
+  myRole: 'HOST' | 'MEMBER' | 'NONE', myTripId: string | null,
+  termsVersion: number, readOnly: boolean,
+  canJoin: boolean, canConfirm: boolean, allConfirmed: boolean,
+  participants: Participant[],
+  routePreview: LatLng[]                  // host route trimmed; [] for non-members
+}
+Participant { memberId, nickname, role: 'HOST' | 'MEMBER', status: 'ACTIVE' | 'LEFT' | 'REMOVED', passengerCount, confirmed: boolean, joinedAt }
+```
+
+## conversation (owner: backend-domain)
+
+| Method | Path | Body / Query | Response |
+|---|---|---|---|
+| GET | `/api/rooms/{id}/messages` | `?after=<messageId>&limit=50` | `Message[]` ascending. ACTIVE participants only (403 otherwise). Hidden messages → `body: null, hidden: true`. |
+| POST | `/api/rooms/{id}/messages` | `{ body: string(1–500), clientMessageId: string }` | 201 `Message`. 409 `ROOM_READ_ONLY` when room ∈ READ_ONLY. Duplicate `clientMessageId` from same sender → returns existing. |
+
+WebSocket (push only): `ws://<host>/ws/rooms/{roomId}?token=<token>` — ACTIVE participants only.
+Server → client frames: `{ "type": RoomEventType, "payload": ... }`
+
+```ts
+Message   { id, roomId, senderId: string | null, senderNickname: string | null, type: 'TEXT' | 'SYSTEM', body: string | null, hidden: boolean, createdAt }
+RoomEvent =
+  | { type: 'MESSAGE_CREATED', payload: Message }
+  | { type: 'MESSAGE_HIDDEN',  payload: { messageId } }
+  | { type: 'ROOM_UPDATED',    payload: { roomId, status: RoomStatus, termsVersion: number } }   // client refetches GET /rooms/{id}
+```
+Retention: messages deleted `retention-days` (30) after the room reaches CLOSED/CANCELLED/EXPIRED (daily job).
+
+## moderation (owner: backend-domain)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/api/reports` | `{ targetType, targetId, reason, detail? (≤500) }` | 201 `Report` |
+| GET | `/api/admin/reports` | `?status=OPEN` | `Report[]` (ADMIN) |
+| POST | `/api/admin/reports/{id}/actions` | `{ action: ModerationAction, note? }` | `Report` (ADMIN). HIDE_ROOM hides room from candidates and blocks join; HIDE_MESSAGE masks message; RESTRICT_MEMBER → `IdentityApi.restrictMember`. |
+| GET | `/api/admin/metrics` | – | `AdminMetrics` (ADMIN) |
+
+```ts
+Report       { id, reporterId, reporterNickname, targetType, targetId, reason, detail: string | null, status: ReportStatus, targetPreview: string | null, createdAt, resolvedAt: string | null, resolutionNote: string | null }
+AdminMetrics { periodDays: 7, openReports, reportsInPeriod, tripsCreated, tripsMatched, tripsNoMatch, tripsExpired, matchFailureRate /*0–1: (noMatch+expired)/created*/, roomsCreated, roomsConfirmed }
+```
+
+---
+
+## Module dependency rules (backend)
+
+```
+common  ←  everyone
+identity.api ← trip, rideroom, conversation, moderation, matching
+trip.api     ← rideroom, matching, moderation
+rideroom.api ← matching
+(rideroom internal) ← conversation, moderation   — same owner, still go through public application services
+```
+No module imports another module's `internal`/entity/repository packages. Cross-module async signals use the event records in `*.api`
+(`LocationConsentWithdrawnEvent`, `TripCancelledEvent`) via `ApplicationEventPublisher`, synchronous `@EventListener` (same transaction).
+Flyway version ranges: V1 lead · V10–19 identity · V20–29 trip · V30–39 rideroom · V40–49 conversation · V50–59 moderation · V60–69 matching/places.
