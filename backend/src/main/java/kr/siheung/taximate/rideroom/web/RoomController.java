@@ -13,6 +13,11 @@ public class RoomController {
     @PostMapping @ResponseStatus(org.springframework.http.HttpStatus.CREATED)
     public Object create(@CurrentMember AuthenticatedMember me,@Valid @RequestBody RoomRequests.Create r) { return service.create(me.memberId(),r); }
     @GetMapping("/mine") public Object mine(@CurrentMember AuthenticatedMember me) { return service.mine(me.memberId()); }
+    @GetMapping("/open")
+    public Object open(@CurrentMember AuthenticatedMember me,
+            @RequestParam(required=false) Double lat,@RequestParam(required=false) Double lng) {
+        return service.open(me.memberId(),lat,lng);
+    }
     @GetMapping("/{id}") public Object detail(@CurrentMember AuthenticatedMember me,@PathVariable UUID id) { return service.detail(id,me.memberId()); }
     @PostMapping("/{id}/join") public Object join(@CurrentMember AuthenticatedMember me,@PathVariable UUID id,@Valid @RequestBody RoomRequests.Join r) { return locks.withLock("room:"+id,()->service.join(id,me.memberId(),r.tripId())); }
     @PostMapping("/{id}/confirm") public Object confirm(@CurrentMember AuthenticatedMember me,@PathVariable UUID id,@Valid @RequestBody RoomRequests.Confirm r) { return locks.withLock("room:"+id,()->service.confirm(id,me.memberId(),r.termsVersion())); }

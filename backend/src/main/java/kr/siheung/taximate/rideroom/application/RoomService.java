@@ -5,6 +5,10 @@ import java.time.*;
 import java.util.*;
 import java.util.stream.Collectors;
 import kr.siheung.taximate.common.error.*;
+import kr.siheung.taximate.common.geo.GeoUtils;
+import kr.siheung.taximate.common.geo.LatLng;
+import kr.siheung.taximate.common.place.PlaceKind;
+import kr.siheung.taximate.common.place.PlaceRef;
 import kr.siheung.taximate.common.privacy.LocationMasker;
 import kr.siheung.taximate.identity.api.*;
 import kr.siheung.taximate.trip.api.*;
@@ -143,8 +147,16 @@ public class RoomService implements RideRoomApi {
     public void requireWritable(UUID id,UUID memberId) { RideRoom r=lock(id); requireParticipant(id,memberId); identity.requireActive(memberId); joinable(r); }
     public RoomSummaryDto summary(UUID id) { return summary(room(id)); }
     private RoomSummaryDto summary(RideRoom r) {
-        TripIntentView t=trips.getTrip(r.sourceTripId); List<RoomParticipant> a=active(r.id);
-        return new RoomSummaryDto(r.id,r.status,identity.getMember(r.hostMemberId).nickname(),masker.approximate(t.origin()==null?null:t.origin().location()),masker.approximate(t.destination()==null?null:t.destination().location()),masker.areaLabel(t.origin()),masker.areaLabel(t.destination()),r.departureAt,r.departureWindowEnd,r.capacity,r.capacity-a.stream().mapToInt(p->p.passengerCount).sum(),a.size(),r.terms(),r.meetingPoint());
+        return summary(r,trips.getTrip(r.sourceTripId));
+    }
+    private RoomSummaryDto summary(RideRoom r,TripIntentView t) {
+        List<RoomParticipant> a=active(r.id);
+        return new RoomSummaryDto(r.id,r.status,identity.getMember(r.hostMemberId).nickname(),masker.approximate(t.origin()==null?null:t.origin().location()),masker.approximate(t.destination()==null?null:t.destination().location()),masker.areaLabel(t.origin()),masker.areaLabel(t.destination()),r.departureAt,r.departureWindowEnd,r.capacity,r.capacity-a.stream().mapToInt(p->p.passengerCount).sum(),a.size(),r.terms(),r.meetingPoint(),t.route()==null?null:t.route().taxiFareWon(),publicName(t.origin()),publicName(t.destination()));
+    }
+    private static final Set<PlaceKind> NAMED_KINDS=EnumSet.of(PlaceKind.SEARCH,PlaceKind.STATION_EXIT,PlaceKind.BUS_STOP,PlaceKind.LANDMARK);
+    /** Public place/building name only (never PlaceRef.address); null for GPS/MAP_PICK or blank names. */
+    private static String publicName(PlaceRef p) {
+        return p==null||p.kind()==null||!NAMED_KINDS.contains(p.kind())||p.name()==null||p.name().isBlank()?null:p.name().strip();
     }
     public record ParticipantDto(UUID memberId,String nickname,Role role,Status status,int passengerCount,boolean confirmed,OffsetDateTime joinedAt) {}
     public RoomDetail detail(UUID id,UUID memberId) {
@@ -160,11 +172,46 @@ public class RoomService implements RideRoomApi {
         return new RoomDetail(summary(r),mine==null?"NONE":mine.role.name(),mine==null?null:mine.tripId,r.termsVersion,!writable,
             enabled&&mine==null&&writable&&!r.hidden&&seats(r)>0&&r.departureWindowEnd.isAfter(now())&&(previous==null||previous.status!=Status.REMOVED),
             enabled&&mine!=null&&writable&&r.meetingPoint()!=null&&!Objects.equals(mine.confirmedTermsVersion,r.termsVersion),all,visible,
-            mine==null||t.route()==null?List.of():masker.trimPathEnds(t.route().path()));
+            t.route()==null?List.of():masker.trimPathEnds(t.route().path()));
     }
     public List<RoomSummaryDto> mine(UUID memberId) {
         return em.createQuery("select r from RideRoom r, RoomParticipant p where p.roomId=r.id and p.memberId=:member and p.status=:active and (r.status in :statuses or r.closedAt>=:since) order by r.createdAt desc",RideRoom.class)
             .setParameter("member",memberId).setParameter("active",Status.ACTIVE).setParameter("statuses",RoomStatus.ACTIVE).setParameter("since",now().minusHours(24)).getResultList().stream().map(this::summary).toList();
+    }
+    @Transactional(readOnly=true)
+    public List<RoomSummaryDto> open(UUID memberId,Double lat,Double lng) {
+        if((lat==null)!=(lng==null) || (lat!=null &&
+                (!Double.isFinite(lat) || !Double.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180)))
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,"Provide both lat and lng in valid coordinate ranges");
+        // Bound the Java distance search to the earliest 500 eligible departures.
+        // Caller coordinates are request-local only; host locations cross the TripApi boundary.
+        List<RideRoom> eligible=em.createQuery("""
+                select r from RideRoom r
+                where r.status in :statuses and r.hidden=false and r.departureWindowEnd>:now
+                and not exists (select p.id from RoomParticipant p
+                    where p.roomId=r.id and p.memberId=:member and p.status=:active)
+                and r.capacity > (select coalesce(sum(p.passengerCount),0) from RoomParticipant p
+                    where p.roomId=r.id and p.status=:active)
+                order by r.departureAt,r.id
+                """,RideRoom.class)
+            .setParameter("statuses",RoomStatus.JOINABLE).setParameter("now",now())
+            .setParameter("member",memberId).setParameter("active",Status.ACTIVE)
+            .setMaxResults(lat==null?10:500).getResultList();
+        if(lat==null) return eligible.stream().map(this::summary).toList();
+        LatLng caller=LatLng.of(lat,lng);
+        Map<UUID,TripIntentView> hosts=trips.getTrips(eligible.stream().map(r->r.sourceTripId).toList())
+            .stream().collect(Collectors.toMap(TripIntentView::id,t->t));
+        record Nearby(RideRoom room,TripIntentView trip,double distance) {}
+        return eligible.stream().filter(r->hosts.containsKey(r.sourceTripId))
+            .map(r->{
+                TripIntentView t=hosts.get(r.sourceTripId);
+                LatLng origin=masker.approximate(t.origin()==null?null:t.origin().location());
+                return new Nearby(r,t,origin==null?Double.POSITIVE_INFINITY:GeoUtils.distanceMeters(caller,origin));
+            })
+            .filter(n->n.distance()<=3000)
+            .sorted(Comparator.comparingDouble(Nearby::distance)
+                .thenComparing(n->n.room().departureAt).thenComparing(n->n.room().id))
+            .limit(10).map(n->summary(n.room(),n.trip())).toList();
     }
     @Override public List<RoomMatchView> findJoinableRoomsBySourceTripIds(Collection<UUID> ids) {
         if(ids.isEmpty()) return List.of();

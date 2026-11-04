@@ -48,10 +48,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 mx-auto flex max-w-md flex-col gap-2 px-4">
+      <div className="pointer-events-none absolute inset-x-0 top-[max(16px,env(safe-area-inset-top))] z-[60] flex flex-col items-center gap-2 px-4" aria-live="polite">
         {toasts.map(t => (
-          <div key={t.id} role="status" className={`rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${t.tone === 'error' ? 'bg-slate-900 text-white' : 'bg-brand-600 text-white'}`}>
-            {t.text}
+          <div key={t.id} role="status" className="animate-pop flex max-w-full items-center gap-2 rounded-full bg-ink px-4 py-3 text-sm font-medium text-white shadow-float">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${t.tone === 'error' ? 'bg-[#FF6B5B]' : 'bg-sun'}`} />
+            <span>{t.text}</span>
           </div>
         ))}
       </div>
@@ -65,7 +66,7 @@ export function useApp(): AppState {
   return ctx;
 }
 
-/** Shared error handling: consent → /consent, auth → /login, everything else → Korean toast. */
+/** Shared error handling: consent → /consent, auth → /start, everything else → Korean toast. */
 export function useErrorHandler() {
   const { toast, logout } = useApp();
   const navigate = useNavigate();
@@ -80,7 +81,7 @@ export function useErrorHandler() {
     if (isApiError(error, 'UNAUTHENTICATED')) {
       logout();
       toast(describeError(error));
-      navigate('/login');
+      navigate('/start');
       return;
     }
     if (!isApiError(error)) console.error(error);

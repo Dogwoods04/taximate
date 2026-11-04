@@ -12,6 +12,11 @@ import kr.siheung.taximate.common.place.MeetingPointDto;
  *
  * @param seatsLeft capacity - sum(passengerCount of ACTIVE participants incl. host)
  * @param meetingPoint null until host sets one
+ * @param originName      public place/building name of the host trip origin (PlaceRef.name) when it was chosen by
+ *                        search (kind SEARCH, STATION_EXIT, BUS_STOP, LANDMARK); null for GPS/MAP_PICK. Never an address.
+ * @param destinationName same for the destination.
+ * @param estimatedTaxiFareWon whole-route taxi fare of the host trip route (RouteView.taxiFareWon), null if unknown.
+ *                             The UI shows per-person fare = estimatedTaxiFareWon / participantCount.
  */
 public record RoomSummaryDto(
         UUID id,
@@ -27,5 +32,8 @@ public record RoomSummaryDto(
         int seatsLeft,
         int participantCount,
         RoomTermsDto terms,
-        MeetingPointDto meetingPoint) {
+        MeetingPointDto meetingPoint,
+        Integer estimatedTaxiFareWon,
+        String originName,
+        String destinationName) {
 }

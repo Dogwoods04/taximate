@@ -54,12 +54,18 @@ export const ROOM_READ_ONLY: RoomStatus[] = ['CONFIRMED', 'CLOSED', 'CANCELLED',
 export interface DevLoginRequest { nickname: string }
 export interface DevLoginResponse { token: string; member: Member }
 export interface LocationConsent { id: UUID; policyVersion: string; agreedAt: ISODateTime }
+/** External services the app sends data to (step 3 of onboarding). */
+export type ServiceItem = 'KAKAO' | 'TMAP';
+export const REQUIRED_SERVICE_ITEMS: ServiceItem[] = ['KAKAO', 'TMAP'];
+export interface ServicesConsent { id: UUID; policyVersion: string; items: ServiceItem[]; agreedAt: ISODateTime }
+export interface ServicesConsentRequest { policyVersion: string; items: ServiceItem[] }
 export interface Member {
   id: UUID;
   nickname: string;
   role: MemberRole;
   status: MemberStatus;
   locationConsent: LocationConsent | null;
+  servicesConsent: ServicesConsent | null;
 }
 export interface LocationConsentRequest { policyVersion: string }
 
@@ -72,12 +78,20 @@ export interface CreateTripRequest {
   maxDetourMinutes: number; // 0–30
   passengerCount: number;   // 1–3
 }
+/** GET /api/routes/walk — pedestrian route (TMAP) or straight-line estimate. Never stored. */
+export interface WalkRoute {
+  source: 'TMAP' | 'ESTIMATE';
+  distanceMeters: number;
+  durationSeconds: number;
+  path: LatLng[];
+}
 export interface RouteSnapshot {
   id: UUID;
   provider: 'KAKAO' | 'MOCK';
   distanceMeters: number;
   durationSeconds: number;
   path: LatLng[];
+  taxiFareWon: number | null; // whole-route taxi fare (KRW); null if provider gave none
   calculatedAt: ISODateTime;
   expiresAt: ISODateTime;
 }
@@ -153,6 +167,9 @@ export interface RoomSummary {
   participantCount: number;
   terms: RoomTerms;
   meetingPoint: MeetingPoint | null;
+  estimatedTaxiFareWon: number | null; // host route whole fare; per person = this / participantCount
+  originName: string | null;      // public place/building name the host picked by search; null for GPS/map pick (use originLabel)
+  destinationName: string | null; // same for the destination
 }
 export interface Participant {
   memberId: UUID;

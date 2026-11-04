@@ -11,6 +11,8 @@ import kr.siheung.taximate.common.geo.LatLng;
  *
  * @param provider "KAKAO" or "MOCK"
  * @param path     simplified car route polyline, origin -> destination
+ * @param taxiFareWon estimated taxi fare for the whole route in KRW (Kakao summary.fare.taxi;
+ *                    MOCK: Gyeonggi meter estimate). null when the provider gave none.
  */
 public record RouteView(
         UUID snapshotId,
@@ -18,6 +20,7 @@ public record RouteView(
         int distanceMeters,
         int durationSeconds,
         List<LatLng> path,
+        Integer taxiFareWon,
         OffsetDateTime calculatedAt,
         OffsetDateTime expiresAt) {
 }

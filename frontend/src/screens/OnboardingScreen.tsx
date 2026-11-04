@@ -1,0 +1,342 @@
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { api, isMock } from '../api';
+import { session } from '../api/client';
+import { useAction, useApp } from '../lib/app';
+import { formatTime } from '../lib/format';
+import { ArrowIcon, CheckIcon, ChevronLeftIcon, InfoIcon } from '../components/icons';
+import { REQUIRED_SERVICE_ITEMS } from '../api/contract';
+
+export const SERVICES_NOTICE_VERSION = '2026-11-v1';
+
+export const LOCATION_POLICY_VERSION = '2026-11-v1';
+type Step = 'intro' | 'name' | 'consent' | 'services';
+
+/** Start (intro) → 사용자 이름 → 위치 정보 동의 → 외부 서비스 동의, one dark full-screen flow with cross-step motion. */
+export default function OnboardingScreen({ consentOnly = false, servicesOnly = false }: { consentOnly?: boolean; servicesOnly?: boolean }) {
+  const { member, loading } = useApp();
+  const [step, setStep] = useState<Step>(servicesOnly ? 'services' : consentOnly ? 'consent' : 'intro');
+  const [leaving, setLeaving] = useState(false);
+  const loggedInHere = useRef(false);
+
+  const go = (next: Step) => {
+    setLeaving(true);
+    setTimeout(() => { setStep(next); setLeaving(false); }, 380);
+  };
+
+  const only = consentOnly || servicesOnly;
+  if (!only && session.get() && loading) return <Dark><div className="grid flex-1 place-items-center"><div className="spinner" style={{ borderColor: 'rgba(255,255,255,.15)', borderTopColor: '#FFD966' }} /></div></Dark>;
+  // A saved session skips the intro entirely.
+  if (!only && member && !loggedInHere.current) return <Navigate to="/" replace />;
+
+  return (
+    <Dark>
+      {step === 'intro' && <Intro leaving={leaving} onStart={() => go('name')} />}
+      {step === 'name' && <NameStep leaving={leaving} onBack={() => go('intro')} onDone={hasConsent => { loggedInHere.current = true; if (!hasConsent) go('consent'); }} />}
+      {step === 'consent' && <ConsentStep leaving={leaving} />}
+      {step === 'services' && <ServicesStep leaving={leaving} />}
+    </Dark>
+  );
+}
+
+function Dark({ children }: { children: ReactNode }) {
+  return <div className="absolute inset-0 flex flex-col overflow-y-auto bg-ink text-white">{children}</div>;
+}
+
+const rise = (leaving: boolean, delay: number) => leaving
+  ? { className: 'animate-sink', style: { animationDelay: `${Math.min(delay, 120)}ms` } }
+  : { className: 'animate-rise', style: { animationDelay: `${delay}ms` } };
+
+function Brand() {
+  return (
+    <div className="flex items-center gap-1.5">
+      <ArrowIcon size={26} className="-scale-x-100 text-white" />
+      <span className="text-[26px] font-bold tracking-tight text-sun">택시메이트</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Start
+
+function Intro({ leaving, onStart }: { leaving: boolean; onStart(): void }) {
+  const [info, setInfo] = useState(false);
+  return (
+    <div className="flex min-h-full flex-1 flex-col px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(48px,env(safe-area-inset-top))]">
+      <header className="flex items-center justify-between border-b border-white/25 pb-6">
+        <Brand />
+        <button type="button" onClick={() => setInfo(v => !v)} aria-expanded={info} aria-label="서비스 안내" className="text-sun transition active:scale-90"><InfoIcon size={26} /></button>
+      </header>
+      {info && (
+        <p className="animate-fade mt-4 rounded-2xl bg-white/[.06] px-4 py-3 text-[13px] leading-relaxed text-white/70">
+          택시메이트는 시흥에서 비슷한 동선으로 이동하는 이웃을 찾아 택시 동승을 조율해 주는 MVP 서비스예요. 택시 호출·결제는 하지 않고, 다른 사람에게는 대략적인 위치만 보여요.
+        </p>
+      )}
+
+      <div className="mt-[9vh] text-center">
+        <h1 {...rise(leaving, 0)} className={`${rise(leaving, 0).className} text-[40px] font-bold leading-[1.15] tracking-[-0.03em]`}>같은 방향이면,<br />함께 타요</h1>
+        <p {...rise(leaving, 90)} className={`${rise(leaving, 90).className} mt-4 text-[17px] text-white/60`}>시흥 이웃과 택시를 나눠 타는 가장 가벼운 방법</p>
+      </div>
+
+      <RouteArt leaving={leaving} />
+
+      <div className={`mt-auto shrink-0 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: leaving ? '60ms' : '220ms' }}>
+        <button type="button" className="btn-sun w-full text-[18px]" onClick={onStart}>시작하기</button>
+        <p className="mt-4 text-center text-xs text-white/35">닉네임만으로 바로 시작해요</p>
+      </div>
+    </div>
+  );
+}
+
+/** Decorative: the mockup's light beam, with two dotted paths merging into one route. */
+function RouteArt({ leaving }: { leaving: boolean }) {
+  return (
+    <div className={`pointer-events-none relative mx-auto my-6 min-h-[140px] w-full max-w-[320px] flex-1 basis-[200px] max-h-[240px] ${leaving ? 'animate-sink' : 'animate-fade'}`} aria-hidden>
+      <div className="absolute inset-x-[18%] bottom-0 top-0 rounded-t-[48px] bg-gradient-to-b from-sun/40 via-sun/10 to-transparent [clip-path:polygon(18%_0,82%_0,100%_100%,0_100%)]" />
+      <svg viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" className="absolute inset-0 h-full w-full">
+        <path d="M60 20 C 80 90, 150 100, 160 140" fill="none" stroke="rgba(255,255,255,.45)" strokeWidth="3" strokeDasharray="2 9" strokeLinecap="round" />
+        <path d="M260 30 C 240 90, 170 100, 160 140" fill="none" stroke="rgba(255,255,255,.45)" strokeWidth="3" strokeDasharray="2 9" strokeLinecap="round" />
+        <path d="M160 140 L 160 210" fill="none" stroke="#FFD966" strokeWidth="6" strokeLinecap="round" strokeDasharray="14 6" style={{ animation: 'route-dash 1.2s linear infinite' }} />
+        <circle cx="60" cy="20" r="8" fill="#151515" stroke="#fff" strokeWidth="4" />
+        <circle cx="260" cy="30" r="8" fill="#151515" stroke="#fff" strokeWidth="4" />
+        <circle cx="160" cy="140" r="11" fill="#FFD966" stroke="#151515" strokeWidth="4" />
+      </svg>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- 사용자 이름
+
+function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): void; onDone(hasConsent: boolean): void }) {
+  const { setMember } = useApp();
+  const { busy, run } = useAction();
+  const navigate = useNavigate();
+  const [nickname, setNickname] = useState('');
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => { const t = setTimeout(() => input.current?.focus(), 450); return () => clearTimeout(t); }, []);
+  const trimmed = nickname.trim();
+  const valid = trimmed.length >= 2 && trimmed.length <= 20;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!valid || busy) return;
+    const res = await run(() => api.identity.login({ nickname: trimmed }));
+    if (!res) return;
+    session.set(res.token);
+    onDone(!!res.member.locationConsent);
+    setMember(res.member);
+    if (res.member.locationConsent) navigate('/', { replace: true });
+  };
+
+  return (
+    <form onSubmit={submit} className="flex min-h-full flex-1 flex-col px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(40px,env(safe-area-inset-top))]">
+      <button type="button" onClick={onBack} aria-label="뒤로" className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-white/80 transition active:bg-white/10"><ChevronLeftIcon /></button>
+      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 text-[15px] font-semibold text-sun`}>1 / 3</p>
+      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[44px] font-bold leading-[1.1] tracking-[-0.035em]`}>어떻게<br />불러드릴까요?</h1>
+      <p {...rise(leaving, 120)} className={`${rise(leaving, 120).className} mt-4 text-[17px] leading-relaxed text-white/55`}>함께 탈 이웃에게 보이는 이름이에요.</p>
+
+      <div {...rise(leaving, 180)} className={`${rise(leaving, 180).className} mt-14`}>
+        <label htmlFor="nickname" className="sr-only">사용자 이름</label>
+        <input
+          ref={input}
+          id="nickname"
+          value={nickname}
+          maxLength={20}
+          autoComplete="nickname"
+          onChange={e => setNickname(e.target.value)}
+          placeholder="사용자 이름"
+          className="w-full border-b-2 border-white/20 bg-transparent pb-3 text-[34px] font-semibold tracking-tight text-white caret-sun outline-none transition-colors placeholder:text-white/20 focus:border-sun"
+        />
+        <div className="mt-3 flex justify-between text-[13px] text-white/40">
+          <span>{trimmed.length > 0 && trimmed.length < 2 ? '2자 이상 입력해 주세요' : '2–20자'}</span>
+          <span>{trimmed.length}/20</span>
+        </div>
+      </div>
+
+      <div className={`mt-auto pt-10 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: leaving ? '0ms' : '240ms' }}>
+        <button type="submit" className="btn-sun w-full" disabled={!valid || busy}>{busy ? '확인 중…' : '계속'}</button>
+        <p className="mt-4 text-center text-xs leading-relaxed text-white/35">
+          개발용 로그인이에요. 정식 출시 전 실제 인증으로 바뀌어요.
+          {isMock && <><br />MOCK 모드: <b className="text-white/60">admin</b>으로 시작하면 운영자 메뉴가 보여요.</>}
+        </p>
+      </div>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------- 위치 정보 동의
+
+const POINTS: [string, string][] = [
+  ['필요할 때 한 번만', '홈 화면을 열 때와 내 위치 버튼을 누를 때만 GPS를 한 번 확인해요. 계속 추적하지 않아요.'],
+  ['동선을 찾는 데만', '출발지·도착지는 비슷한 동선의 이웃(반경 500m)과 만날 장소를 찾는 데만 써요.'],
+  ['남에게는 장소 이름만', '다른 이용자에게는 내가 고른 장소 이름(역·건물 등)과 예상 경로만 보여요. 내 GPS 위치와 주소는 보이지 않아요.'],
+  ['24시간 안에 삭제', '이동이 끝나거나 취소·만료되면 24시간 이내에 정밀 좌표를 지워요.'],
+];
+
+function ConsentStep({ leaving }: { leaving: boolean }) {
+  const { member, refreshMember, toast } = useApp();
+  const { busy, run } = useAction();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from;
+  const consent = member?.locationConsent ?? null;
+
+  const agree = async () => {
+    const ok = await run(() => api.identity.agree({ policyVersion: LOCATION_POLICY_VERSION }));
+    if (!ok) return;
+    await refreshMember();
+    const next = from && !['/consent', '/start', '/services'].includes(from) ? from : '/';
+    if (member && !member.servicesConsent) navigate('/services', { replace: true, state: { from: next } });
+    else navigate(next, { replace: true });
+  };
+  const withdraw = async () => {
+    if (!window.confirm('동의를 철회하면 진행 중인 이동이 취소되고, 동행을 찾을 수 없어요. 철회할까요?')) return;
+    const done = await run(async () => { await api.identity.withdraw(); return true; });
+    if (!done) return;
+    await refreshMember();
+    toast('위치 정보 이용 동의를 철회했어요.', 'info');
+  };
+
+  return (
+    <div className="flex min-h-full flex-1 flex-col px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(40px,env(safe-area-inset-top))]">
+      {consent
+        ? <button type="button" onClick={() => navigate('/')} aria-label="뒤로" className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-white/80 transition active:bg-white/10"><ChevronLeftIcon /></button>
+        : <div className="h-11" />}
+      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 text-[15px] font-semibold text-sun`}>{consent ? '위치 정보 동의' : '2 / 3'}</p>
+      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[44px] font-bold leading-[1.1] tracking-[-0.035em]`}>위치는<br />필요한 순간에만.</h1>
+
+      <ol className="mt-10 space-y-6">
+        {POINTS.map(([title, body], i) => (
+          <li key={title} {...rise(leaving, 120 + i * 60)} className={`${rise(leaving, 120 + i * 60).className} flex gap-4`}>
+            <span className="mt-0.5 text-[15px] font-bold tabular-nums text-sun">0{i + 1}</span>
+            <div>
+              <div className="text-[19px] font-semibold tracking-tight">{title}</div>
+              <p className="mt-1 text-[15px] leading-relaxed text-white/55">{body}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <div className={`mt-auto pt-10 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: '420ms' }}>
+        {consent ? (
+          <>
+            <p className="mb-4 text-center text-[13px] text-white/50">{formatTime(consent.agreedAt)}에 동의했어요 · 버전 {consent.policyVersion}</p>
+            <div className="flex gap-3">
+              <button type="button" className="btn-sun flex-1" onClick={() => navigate('/')}>돌아가기</button>
+              <button type="button" className="btn flex-none bg-white/10 text-white/80" disabled={busy} onClick={withdraw}>동의 철회</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <button type="button" className="btn-sun w-full" disabled={busy || member?.status === 'RESTRICTED'} onClick={agree}>동의하고 시작하기</button>
+            <p className="mt-4 text-center text-xs text-white/35">정책 버전 {LOCATION_POLICY_VERSION} · 메뉴에서 언제든 철회할 수 있어요</p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- 외부 서비스 동의
+
+type Service = { id: 'kakao' | 'tmap'; name: string; owner: string; uses: string[]; sent: string };
+const SERVICES: Service[] = [
+  {
+    id: 'kakao', name: 'KAKAO API', owner: '카카오 · 카카오모빌리티',
+    uses: ['지도 표시 (카카오맵)', '출발지·도착지 장소 검색 (카카오 로컬)', '자동차 경로와 예상 택시요금 (카카오모빌리티 길찾기)'],
+    sent: '검색어, 출발지·도착지 좌표, 지도에서 보고 있는 위치',
+  },
+  {
+    id: 'tmap', name: 'TMAP API', owner: 'SK open API · 티맵모빌리티',
+    uses: ['내 위치에서 방 출발지까지 걷는 길과 시간 (보행자 경로안내)'],
+    sent: '버튼을 눌렀을 때의 내 위치 1회와 방 출발지 좌표',
+  },
+];
+
+function Check({ on }: { on: boolean }) {
+  return (
+    <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg border-2 transition ${on ? 'border-sun bg-sun text-ink' : 'border-white/30 text-transparent'}`} aria-hidden>
+      <CheckIcon size={18} />
+    </span>
+  );
+}
+
+function ServicesStep({ leaving }: { leaving: boolean }) {
+  const { member, refreshMember, toast } = useApp();
+  const { busy, run } = useAction();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from;
+  const consent = member?.servicesConsent ?? null;
+  const agreedAt = consent?.agreedAt ?? null;
+  const [checked, setChecked] = useState<Record<Service['id'], boolean>>({ kakao: !!agreedAt, tmap: !!agreedAt });
+  const all = SERVICES.every(s => checked[s.id]);
+  const toggle = (id: Service['id']) => { if (!agreedAt) setChecked(c => ({ ...c, [id]: !c[id] })); };
+  const toggleAll = () => { if (!agreedAt) setChecked({ kakao: !all, tmap: !all }); };
+  const done = async () => {
+    if (!agreedAt) {
+      const ok = await run(() => api.identity.agreeServices({ policyVersion: SERVICES_NOTICE_VERSION, items: REQUIRED_SERVICE_ITEMS }));
+      if (!ok) return;
+      await refreshMember();
+    }
+    navigate(from && !['/consent', '/start', '/services'].includes(from) ? from : '/', { replace: true });
+  };
+  const withdraw = async () => {
+    if (!window.confirm('외부 서비스 이용 동의를 철회하면 지도와 경로 기능을 쓸 수 없어요. 철회할까요?')) return;
+    const done = await run(async () => { await api.identity.withdrawServices(); return true; });
+    if (!done) return;
+    await refreshMember();
+    setChecked({ kakao: false, tmap: false });
+    toast('외부 서비스 이용 동의를 철회했어요.', 'info');
+  };
+
+  return (
+    <div className="flex min-h-full flex-1 flex-col px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(40px,env(safe-area-inset-top))]">
+      {agreedAt
+        ? <button type="button" onClick={() => navigate('/')} aria-label="뒤로" className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-white/80 transition active:bg-white/10"><ChevronLeftIcon /></button>
+        : <div className="h-11" />}
+      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 text-[15px] font-semibold text-sun`}>{agreedAt ? '외부 서비스 이용' : '3 / 3'}</p>
+      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[40px] font-bold leading-[1.12] tracking-[-0.035em]`}>함께 쓰는<br />외부 서비스</h1>
+      <p {...rise(leaving, 100)} className={`${rise(leaving, 100).className} mt-4 text-[15px] leading-relaxed text-white/55`}>택시메이트는 아래 서비스를 이용해 지도와 경로를 보여 드려요. 항목마다 확인하고 체크해 주세요.</p>
+
+      <button type="button" onClick={toggleAll} disabled={!!agreedAt} {...rise(leaving, 140)}
+        className={`${rise(leaving, 140).className} mt-8 flex items-center justify-between rounded-2xl bg-white/[.08] px-5 py-4 text-left`}>
+        <span className="text-[17px] font-semibold">모두 확인하고 동의해요</span>
+        <Check on={all} />
+      </button>
+
+      <ul className="mt-3 space-y-3">
+        {SERVICES.map((s, i) => (
+          <li key={s.id} {...rise(leaving, 180 + i * 60)} className={rise(leaving, 180 + i * 60).className}>
+            <button type="button" role="checkbox" aria-checked={checked[s.id]} onClick={() => toggle(s.id)} disabled={!!agreedAt}
+              className={`flex w-full items-start gap-4 rounded-2xl border px-5 py-4 text-left transition ${checked[s.id] ? 'border-sun/60 bg-sun/[.06]' : 'border-white/15'}`}>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[18px] font-bold tracking-tight">{s.name}</span>
+                  <span className="truncate text-[12px] text-white/45">{s.owner}</span>
+                </div>
+                <ul className="mt-2 space-y-1 text-[14px] leading-snug text-white/75">
+                  {s.uses.map(u => <li key={u} className="flex gap-2"><span className="text-sun">·</span>{u}</li>)}
+                </ul>
+                <p className="mt-2 text-[12.5px] leading-snug text-white/45">전달되는 정보: {s.sent}</p>
+              </div>
+              <Check on={checked[s.id]} />
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <div className={`mt-auto pt-8 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: '420ms' }}>
+        {agreedAt && <p className="mb-4 text-center text-[13px] text-white/50">{formatTime(agreedAt)}에 동의했어요 · 버전 {consent!.policyVersion}</p>}
+        {agreedAt ? (
+          <div className="flex gap-3">
+            <button type="button" className="btn-sun flex-1" onClick={() => navigate('/')}>돌아가기</button>
+            <button type="button" className="btn flex-none bg-white/10 text-white/80" disabled={busy} onClick={withdraw}>동의 철회</button>
+          </div>
+        ) : (
+          <button type="button" className="btn-sun w-full" disabled={!all || busy || member?.status === 'RESTRICTED'} onClick={done}>{busy ? '저장하는 중…' : '동의하고 시작하기'}</button>
+        )}
+        {!agreedAt && <p className="mt-4 text-center text-xs text-white/35">두 항목 모두 체크해야 시작할 수 있어요 · 버전 {SERVICES_NOTICE_VERSION}</p>}
+      </div>
+    </div>
+  );
+}

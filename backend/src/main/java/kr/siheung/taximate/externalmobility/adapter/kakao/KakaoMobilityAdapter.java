@@ -60,11 +60,15 @@ public class KakaoMobilityAdapter implements RoutePort, PlaceSearchPort, Meeting
             }
         }
         if (path.size() < 2) throw new MobilityException(MobilityException.Reason.NO_ROUTE);
-        return new RouteResult("KAKAO", route.summary().distance(), route.summary().duration(), Polylines.limit(path), response.transId());
+        return new RouteResult("KAKAO", route.summary().distance(), route.summary().duration(), Polylines.limit(path),
+                route.summary().fare() == null ? null : route.summary().fare().taxi(), response.transId());
     }
     @Override public List<PlaceRef> search(String query, LatLng bias) {
-        var builder = local("/v2/local/search/keyword.json").queryParam("query", "{query}").queryParam("size", 10);
-        if (bias != null) builder.queryParam("x", bias.lng()).queryParam("y", bias.lat()).queryParam("radius", 20000);
+        // Nationwide search: no radius/rect. With x/y, Kakao's accuracy ranking already favours nearby places
+        // (e.g. "스타벅스" → Siheung stores first) while exact names elsewhere (서울역, 제주국제공항) still match.
+        var builder = local("/v2/local/search/keyword.json").queryParam("query", "{query}")
+                .queryParam("sort", "accuracy").queryParam("size", 10);
+        if (bias != null) builder.queryParam("x", bias.lng()).queryParam("y", bias.lat());
         return safe(get(builder.encode().buildAndExpand(query).toUri(), Places.class).documents()).stream()
                 .limit(10).map(p -> new PlaceRef(p.name(), p.address(), point(p), PlaceKind.SEARCH, p.id())).toList();
     }
@@ -111,7 +115,9 @@ public class KakaoMobilityAdapter implements RoutePort, PlaceSearchPort, Meeting
     @JsonIgnoreProperties(ignoreUnknown=true)
     record Route(@JsonProperty("result_code") Integer resultCode, Summary summary, List<Section> sections) {}
     @JsonIgnoreProperties(ignoreUnknown=true)
-    record Summary(Integer distance, Integer duration) {}
+    record Summary(Integer distance, Integer duration, Fare fare) {}
+    @JsonIgnoreProperties(ignoreUnknown=true)
+    record Fare(Integer taxi) {}
     @JsonIgnoreProperties(ignoreUnknown=true)
     record Section(List<Road> roads) {}
     @JsonIgnoreProperties(ignoreUnknown=true)

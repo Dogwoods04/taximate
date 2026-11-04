@@ -25,7 +25,9 @@ public class MockMobilityAdapter implements RoutePort, PlaceSearchPort, MeetingP
         List<LatLng> corners = List.of(origin, LatLng.of(destination.lat(), origin.lng()), destination);
         double distance = GeoUtils.pathLengthMeters(corners);
         var path = Polylines.limit(GeoUtils.resample(corners, Math.max(100, distance / 190)));
-        return new RouteResult("MOCK", (int) Math.round(distance), (int) Math.ceil(distance / 8.3 + 60), path, null);
+        int distanceMeters = (int) Math.round(distance);
+        int taxiFareWon = 4800 + 100 * (int) Math.ceil(Math.max(0, distanceMeters - 1600) / 131.0);
+        return new RouteResult("MOCK", distanceMeters, (int) Math.ceil(distance / 8.3 + 60), path, taxiFareWon, null);
     }
     @Override public List<PlaceRef> search(String query, LatLng bias) {
         String normalized = query.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);

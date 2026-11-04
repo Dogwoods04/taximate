@@ -66,10 +66,14 @@ READ_ONLY = {CONFIRMED, CLOSED, CANCELLED, EXPIRED}: no join, no messages (409 `
 | GET | `/api/me` | – | `Member` |
 | POST | `/api/me/consents/location` | `{ policyVersion: string }` | `LocationConsent` |
 | DELETE | `/api/me/consents/location` | – | 204. Publishes `LocationConsentWithdrawnEvent` → active trips cancelled. |
+| POST | `/api/me/consents/services` | `{ policyVersion: string(1–32), items: ServiceItem[] }` | `ServicesConsent`. `items` must contain every required item (`KAKAO`, `TMAP`) else 400 `VALIDATION_FAILED`. Re-agreeing (same or newer version) replaces the current record; history rows are kept (withdrawn_at set). |
+| DELETE | `/api/me/consents/services` | – | 204. Marks the current record withdrawn. The app then asks again before the map screens. |
 
 ```ts
-Member          { id, nickname, role: MemberRole, status: MemberStatus, locationConsent: LocationConsent | null }
+Member          { id, nickname, role: MemberRole, status: MemberStatus, locationConsent: LocationConsent | null, servicesConsent: ServicesConsent | null }
 LocationConsent { id, policyVersion, agreedAt }   // only current (non-withdrawn) consent is returned
+ServiceItem     = 'KAKAO' | 'TMAP'            // external services: Kakao Maps/Local/Mobility, TMAP pedestrian route
+ServicesConsent { id, policyVersion, items: ServiceItem[], agreedAt }   // only current (non-withdrawn) record
 ```
 
 ## places / external-mobility (owner: mobility-matching)
@@ -78,6 +82,11 @@ LocationConsent { id, policyVersion, agreedAt }   // only current (non-withdrawn
 |---|---|---|---|
 | GET | `/api/places/search` | `query` (required), `lat`,`lng` (optional bias) | `PlaceRef[]` (kind `SEARCH`, ≤10) |
 | GET | `/api/places/reverse` | `lat`,`lng` | `PlaceRef` (address filled; kind `MAP_PICK`) |
+| GET | `/api/routes/walk` | `fromLat`,`fromLng`,`toLat`,`toLng` (required) | `WalkRoute` — pedestrian route for the "is the boarding spot walkable?" check. Signed-in only. Coordinates are passed to the provider and never stored or logged. Provider TMAP pedestrian (`taximate.walking.tmap-app-key`); no key / provider error / >20km straight line → `ESTIMATE` (straight line ×1.3 at 1.2 m/s, `path` = [from, to]). |
+
+```ts
+WalkRoute { source: 'TMAP' | 'ESTIMATE', distanceMeters: number, durationSeconds: number, path: LatLng[] /* from -> to, simplified (≤300 pts) */ }
+```
 
 Kakao REST key never reaches the browser. In `mock` mode results come from fixtures (Siheung: 정왕역, 시흥시청역, 배곧, 월곶역, 오이도역, 시흥시청, 은계, 목감, 장곡 …).
 
@@ -105,7 +114,9 @@ TripIntent {
   route: RouteSnapshot | null, routeError: 'ROUTE_UNAVAILABLE' | null,
   expiresAt, createdAt
 }
-RouteSnapshot { id, provider: 'KAKAO' | 'MOCK', distanceMeters, durationSeconds, path: LatLng[], calculatedAt, expiresAt }
+RouteSnapshot { id, provider: 'KAKAO' | 'MOCK', distanceMeters, durationSeconds, path: LatLng[],
+                taxiFareWon: number | null,   // whole-route taxi fare KRW: Kakao summary.fare.taxi; MOCK = 4800 + 100 per started 131m beyond 1.6km
+                calculatedAt, expiresAt }
 ```
 
 ## matching (owner: mobility-matching)
@@ -158,8 +169,9 @@ NEAR = every participant ≤200m straight-line, EXTENDED = ≤500m. Walking rout
 | Method | Path | Body | Response |
 |---|---|---|---|
 | POST | `/api/rooms` | `CreateRoomRequest` | 201 `RoomDetail`. Source trip must be owner's and SEARCHING/NO_MATCH, not in an active room (409 `ALREADY_IN_ROOM`). |
+| GET | `/api/rooms/open` | `?lat&lng` (optional, one-shot GPS; never stored) | `RoomSummary[]` ≤10: status ∈ JOINABLE, not hidden, seatsLeft > 0, departureWindowEnd > now, caller not an ACTIVE participant. With lat/lng: approxOrigin within 3km ordered by distance; without: ordered by departureAt. |
 | GET | `/api/rooms/mine` | – | `RoomSummary[]` (rooms where I am ACTIVE, status ∈ ACTIVE ∪ recent read-only 24h) |
-| GET | `/api/rooms/{id}` | – | `RoomDetail` (any signed-in user; non-members get only ACTIVE `participants` (same `Participant` shape — no location data) and `routePreview: []`) |
+| GET | `/api/rooms/{id}` | – | `RoomDetail` (any signed-in user; non-members get only ACTIVE `participants` (same `Participant` shape — no location data); `routePreview` is the end-trimmed host route for everyone) |
 | POST | `/api/rooms/{id}/join` | `{ tripId }` | `RoomDetail`. Redisson lock `room:{id}` → tx with row lock → re-check status ∈ JOINABLE, seats ≥ trip.passengerCount, not hidden, trip owned & searchable & not in another room. Errors `ROOM_NOT_JOINABLE`, `ROOM_FULL`, `ALREADY_IN_ROOM`. Same member re-join while ACTIVE → 200 same result. |
 | POST | `/api/rooms/{id}/leave` | – | `RoomDetail`. MEMBER only, not after CONFIRMED. Host must cancel instead. |
 | POST | `/api/rooms/{id}/participants/{memberId}/remove` | – | `RoomDetail` (host only, before CONFIRMED) |
@@ -177,14 +189,17 @@ RoomSummary {
   approxOrigin: LatLng, approxDestination: LatLng, originLabel: string, destinationLabel: string,
   departureAt, departureWindowEnd,        // window end = departureAt + host maxWaitMinutes
   capacity, seatsLeft, participantCount,
-  terms: RoomTerms, meetingPoint: MeetingPoint | null
+  terms: RoomTerms, meetingPoint: MeetingPoint | null,
+  estimatedTaxiFareWon: number | null,    // host route RouteSnapshot.taxiFareWon; UI per-person = this / participantCount
+  originName: string | null,              // host origin PlaceRef.name if kind ∈ {SEARCH, STATION_EXIT, BUS_STOP, LANDMARK} (public place/building name), else null. Never the address.
+  destinationName: string | null          // same for the destination
 }
 RoomDetail extends RoomSummary {
   myRole: 'HOST' | 'MEMBER' | 'NONE', myTripId: string | null,
   termsVersion: number, readOnly: boolean,
   canJoin: boolean, canConfirm: boolean, allConfirmed: boolean,
   participants: Participant[],
-  routePreview: LatLng[]                  // host route trimmed; [] for non-members
+  routePreview: LatLng[]                  // host route with both ends trimmed (LocationMasker.trimPathEnds), for any signed-in user
 }
 Participant { memberId, nickname, role: 'HOST' | 'MEMBER', status: 'ACTIVE' | 'LEFT' | 'REMOVED', passengerCount, confirmed: boolean, joinedAt }
 ```

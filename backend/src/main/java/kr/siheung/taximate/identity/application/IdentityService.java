@@ -23,7 +23,8 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
         this.clock=clock; this.props=props; this.events=events;
     }
     public record ConsentDto(UUID id, String policyVersion, OffsetDateTime agreedAt) {}
-    public record MemberDto(UUID id, String nickname, MemberRole role, MemberStatus status, ConsentDto locationConsent) {}
+    public record ServicesConsentDto(UUID id, String policyVersion, List<String> items, OffsetDateTime agreedAt) {}
+    public record MemberDto(UUID id, String nickname, MemberRole role, MemberStatus status, ConsentDto locationConsent, ServicesConsentDto servicesConsent) {}
     public record LoginDto(String token, MemberDto member) {}
     private Member member(UUID id) {
         Member m=em.find(Member.class,id);
@@ -34,9 +35,16 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
         return em.createQuery("from LocationConsent where memberId=:id and withdrawnAt is null",LocationConsent.class)
             .setParameter("id",id).getResultStream().findFirst().orElse(null);
     }
+    private ServiceConsent servicesConsent(UUID id) {
+        return em.createQuery("from ServiceConsent where memberId=:id and withdrawnAt is null",ServiceConsent.class)
+            .setParameter("id",id).getResultStream().findFirst().orElse(null);
+    }
+    private static ServicesConsentDto toDto(ServiceConsent c) {
+        return c==null?null:new ServicesConsentDto(c.id,c.policyVersion,List.of(c.items.split(",")),c.agreedAt);
+    }
     public MemberDto me(UUID id) {
         Member m=member(id); LocationConsent c=consent(id);
-        return new MemberDto(m.id,m.nickname,m.role,m.status,c==null?null:new ConsentDto(c.id,c.policyVersion,c.agreedAt));
+        return new MemberDto(m.id,m.nickname,m.role,m.status,c==null?null:new ConsentDto(c.id,c.policyVersion,c.agreedAt),toDto(servicesConsent(id)));
     }
     public LoginDto login(String nickname) {
         if(!props.devLoginEnabled()) throw ApiException.forbidden("Development login disabled");
@@ -90,5 +98,27 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
         em.find(Member.class,id,LockModeType.PESSIMISTIC_WRITE);
         LocationConsent c=consent(id);
         if(c!=null) { c.withdrawnAt=OffsetDateTime.now(clock); events.publishEvent(new LocationConsentWithdrawnEvent(id)); }
+    }
+    public ServicesConsentDto agreeServices(UUID id,String version,List<String> items) {
+        if(version==null || version.isBlank() || version.length()>32) throw new ApiException(ErrorCode.VALIDATION_FAILED,"Invalid policyVersion");
+        EnumSet<ServiceItem> set=EnumSet.noneOf(ServiceItem.class);
+        if(items!=null) for(String i:items) {
+            try { set.add(ServiceItem.valueOf(i)); }
+            catch(IllegalArgumentException|NullPointerException e) { throw new ApiException(ErrorCode.VALIDATION_FAILED,"Unknown service item: "+i); }
+        }
+        if(!set.containsAll(EnumSet.allOf(ServiceItem.class))) throw new ApiException(ErrorCode.VALIDATION_FAILED,"All service items are required: "+EnumSet.allOf(ServiceItem.class));
+        // Same serialization as location consent: lock the member row.
+        em.find(Member.class,id,LockModeType.PESSIMISTIC_WRITE); requireActive(id);
+        OffsetDateTime now=OffsetDateTime.now(clock);
+        ServiceConsent c=servicesConsent(id);
+        if(c!=null) { c.withdrawnAt=now; em.flush(); }
+        c=new ServiceConsent(); c.id=UUID.randomUUID(); c.memberId=id; c.policyVersion=version;
+        c.items=String.join(",",set.stream().map(Enum::name).toList()); c.agreedAt=now; em.persist(c);
+        return toDto(c);
+    }
+    public void withdrawServices(UUID id) {
+        em.find(Member.class,id,LockModeType.PESSIMISTIC_WRITE);
+        ServiceConsent c=servicesConsent(id);
+        if(c!=null) c.withdrawnAt=OffsetDateTime.now(clock);
     }
 }

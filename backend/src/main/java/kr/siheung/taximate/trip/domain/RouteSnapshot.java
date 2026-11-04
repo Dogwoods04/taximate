@@ -13,6 +13,7 @@ public class RouteSnapshot {
     public Double originLat, originLng, destinationLat, destinationLng;
     @Column(columnDefinition="text") public String pathJson;
     public int distanceMeters, durationSeconds;
+    public Integer taxiFareWon;
     public OffsetDateTime calculatedAt, expiresAt;
     public String providerRequestId;
 }

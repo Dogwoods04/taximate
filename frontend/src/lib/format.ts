@@ -34,7 +34,12 @@ export function formatDuration(seconds: number): string {
   return min >= 60 ? `${Math.floor(min / 60)}시간 ${min % 60}분` : `${min}분`;
 }
 
-export function formatDiff(min: number): string {
+/** Room ends for display: the public place/building name the host picked, else the area label. */
+export const originTitle = (r: { originName?: string | null; originLabel: string }) => r.originName || r.originLabel;
+export const destinationTitle = (r: { destinationName?: string | null; destinationLabel: string }) => r.destinationName || r.destinationLabel;
+
+export function formatDiff(raw: number): string {
+  const min = Math.round(raw); // the API may send fractional minutes
   if (min === 0) return '출발 시간 같음';
   return min > 0 ? `${min}분 늦게 출발` : `${-min}분 일찍 출발`;
 }
@@ -69,3 +74,30 @@ export const reportReasonLabel: Record<ReportReason, string> = {
 export const reportStatusLabel: Record<ReportStatus, string> = { OPEN: '처리 대기', RESOLVED: '조치 완료', DISMISSED: '기각' };
 
 export const targetTypeLabel: Record<ReportTargetType, string> = { ROOM: '동행방', MESSAGE: '메시지', MEMBER: '회원' };
+
+export const formatWon = (won: number) => `${won.toLocaleString('ko-KR')}원`;
+
+/** Per-person share of a whole-route fare, rounded to 100 KRW. */
+export function perPersonFare(total: number | null | undefined, people: number): number | null {
+  if (total == null || people < 1) return null;
+  return Math.round(total / people / 100) * 100;
+}
+
+/** Countdown text: mm:ss below an hour, h:mm from an hour on. */
+export function formatCountdown(ms: number): string {
+  if (ms <= 0) return '00:00';
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+  return h > 0 ? `${h}:${pad(m)}` : `${pad(m)}:${pad(s)}`;
+}
+
+/** "5분 후 출발" / "곧 출발" / "오늘 오후 6:30 출발". */
+export function formatDepartureRelative(iso: string, now = Date.now()): string {
+  const diff = Math.round((Date.parse(iso) - now) / 60000);
+  if (Number.isNaN(diff)) return '-';
+  if (diff <= 0) return '곧 출발';
+  if (diff < 60) return `${diff}분 후 출발`;
+  return `${formatTime(iso)} 출발`;
+}
+
+export const minutesOf = (seconds: number) => Math.max(1, Math.round(seconds / 60));

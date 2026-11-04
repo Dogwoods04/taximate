@@ -1,12 +1,13 @@
 import { ApiError, session, type ApiClient } from './client';
 import type * as C from './contract';
-import { distance, mask, preview, roundMeters, route, routeComparison } from './geo';
+import { REQUIRED_SERVICE_ITEMS } from './contract';
+import { distance, mask, mockFare, preview, roundMeters, route, routeComparison } from './geo';
 
 type Trip = { owner: string; value: C.TripIntent; endedAt?: string; demo?: boolean };
 type Room = { id: string; source: string; host: string; status: C.RoomStatus; capacity: number; terms: C.RoomTerms; departureAt: string; termsVersion: number; meetingPoint: C.MeetingPoint | null; participants: (C.Participant & { tripId: string })[]; hidden: boolean; endedAt?: string; demo?: boolean };
 type StoredMessage = C.Message & { clientMessageId?: string };
 type State = { version: 1; members: C.Member[]; tokens: Record<string, string>; trips: Trip[]; rooms: Room[]; messages: StoredMessage[]; reports: C.Report[]; seededAt: string };
-const key = 'taximate.mock.v2';
+const key = 'taximate.mock.v3';
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
 const joinable = (r: Room) => ['OPEN', 'COORDINATING'].includes(r.status);
@@ -91,7 +92,7 @@ function sweep() {
   save();
 }
 function makeMember(nickname: string): C.Member {
-  const m: C.Member = { id: uuid(), nickname, role: nickname === 'admin' ? 'ADMIN' : 'USER', status: 'ACTIVE', locationConsent: null }; state.members.push(m); return m;
+  const m: C.Member = { id: uuid(), nickname, role: nickname === 'admin' ? 'ADMIN' : 'USER', status: 'ACTIVE', locationConsent: null, servicesConsent: null }; state.members.push(m); return m;
 }
 function makeTrip(m: C.Member, body: C.CreateTripRequest): Trip {
   const t: Trip = { owner: m.id, value: { ...structuredClone(body), id: uuid(), status: 'SEARCHING', route: route(body.origin.location, body.destination.location), routeError: null, expiresAt: new Date(Date.parse(body.desiredDepartureAt) + body.maxWaitMinutes * 60000).toISOString(), createdAt: now() } }; state.trips.push(t); return t;
@@ -108,11 +109,11 @@ function seed() {
   specs.forEach(([from, to, offset], i) => {
     const nickname = ['정왕산책', '퇴근길메이트', '시흥이웃', '장곡바람', '배곧하늘', '정왕새벽'][i];
     const m = state.members.find(m => m.nickname === nickname) ?? makeMember(nickname);
-    m.locationConsent = { id: uuid(), policyVersion: 'v1', agreedAt: now() };
+    m.locationConsent = { id: uuid(), policyVersion: 'v1', agreedAt: now() }; m.servicesConsent = { id: uuid(), policyVersion: 'v1', items: ['KAKAO', 'TMAP'], agreedAt: now() };
     const origin = structuredClone(fixtures[from]); origin.location.lat += offset;
     const destination = structuredClone(fixtures[to]); destination.location.lng += .0003;
     const t = makeTrip(m, { origin, destination, desiredDepartureAt: new Date(Date.now() + (5 + i) * 60000).toISOString(), maxWaitMinutes: 30, maxDetourMinutes: 15, passengerCount: 1 });
-    const r = makeRoom(t, i === 5 ? 3 : 4, { farePolicy: i === 1 ? 'DISTANCE_PRORATED' : 'EQUAL_SPLIT', luggageAllowed: i !== 2, note: '만나는 장소에서 함께 택시를 기다려요.' });
+    const r = makeRoom(t, 3, { farePolicy: i === 1 ? 'DISTANCE_PRORATED' : 'EQUAL_SPLIT', luggageAllowed: i !== 2, note: '만나는 장소에서 함께 택시를 기다려요.' });
     r.demo = true;
     r.meetingPoint = { name: `${fixtures[from].name} 앞 만남 장소`, kind: 'STATION_EXIT', location: fixtures[from].location };
     addMessage(r, '동행방이 열렸어요. 약속을 확인하고 확정해 주세요.');
@@ -120,7 +121,7 @@ function seed() {
   // Solo searchers without a room: 정왕역→시흥시청 and 정왕역→월곶역 (shown as "N명이 찾고 있어요").
   ([['혼자퇴근', 0, 1], ['월곶가는길', 0, 5], ['월곶친구', 0, 5]] as const).forEach(([nickname, from, to]) => {
     const m = state.members.find(m => m.nickname === nickname) ?? makeMember(nickname);
-    m.locationConsent = { id: uuid(), policyVersion: 'v1', agreedAt: now() };
+    m.locationConsent = { id: uuid(), policyVersion: 'v1', agreedAt: now() }; m.servicesConsent = { id: uuid(), policyVersion: 'v1', items: ['KAKAO', 'TMAP'], agreedAt: now() };
     const origin = structuredClone(fixtures[from]); origin.location.lat += .0012;
     const t = makeTrip(m, { origin, destination: structuredClone(fixtures[to]), desiredDepartureAt: new Date(Date.now() + 8 * 60000).toISOString(), maxWaitMinutes: 30, maxDetourMinutes: 15, passengerCount: 1 });
     t.demo = true;
@@ -130,11 +131,11 @@ function seed() {
 seed();
 function summary(r: Room): C.RoomSummary {
   const t = state.trips.find(t => t.value.id === r.source)?.value;
-  return { id: r.id, status: r.status, hostNickname: member(r.host).nickname, approxOrigin: mask(t?.origin.location ?? { lat: 37.37, lng: 126.78 }), approxDestination: mask(t?.destination.location ?? { lat: 37.38, lng: 126.80 }), originLabel: t?.origin.name ? `${t.origin.name} 주변` : '출발 지역', destinationLabel: t?.destination.name ? `${t.destination.name} 주변` : '도착 지역', departureAt: r.departureAt, departureWindowEnd: new Date(Date.parse(r.departureAt) + (t?.maxWaitMinutes ?? 15) * 60000).toISOString(), capacity: r.capacity, seatsLeft: seats(r), participantCount: active(r).length, terms: r.terms, meetingPoint: r.meetingPoint };
+  return { id: r.id, status: r.status, hostNickname: member(r.host).nickname, approxOrigin: mask(t?.origin.location ?? { lat: 37.37, lng: 126.78 }), approxDestination: mask(t?.destination.location ?? { lat: 37.38, lng: 126.80 }), originLabel: t?.origin.name ? `${t.origin.name} 주변` : '출발 지역', destinationLabel: t?.destination.name ? `${t.destination.name} 주변` : '도착 지역', departureAt: r.departureAt, departureWindowEnd: new Date(Date.parse(r.departureAt) + (t?.maxWaitMinutes ?? 15) * 60000).toISOString(), capacity: r.capacity, seatsLeft: seats(r), participantCount: active(r).length, terms: r.terms, meetingPoint: r.meetingPoint, estimatedTaxiFareWon: t?.route ? t.route.taxiFareWon ?? mockFare(t.route.distanceMeters) : null, originName: t && t.origin.kind !== 'GPS' && t.origin.kind !== 'MAP_PICK' ? t.origin.name ?? null : null, destinationName: t && t.destination.kind !== 'GPS' && t.destination.kind !== 'MAP_PICK' ? t.destination.name ?? null : null };
 }
 function detail(r: Room): C.RoomDetail {
   const m = caller(), p = active(r).find(p => p.memberId === m.id);
-  return { ...summary(r), myRole: p?.role ?? 'NONE', myTripId: p?.tripId ?? null, termsVersion: r.termsVersion, readOnly: !joinable(r), canJoin: !p && joinable(r) && !r.hidden && seats(r) > 0, canConfirm: !!p && !p.confirmed && joinable(r) && !!r.meetingPoint, allConfirmed: active(r).length >= 2 && active(r).every(p => p.confirmed), participants: r.participants.map(({ tripId: _tripId, ...person }) => p ? person : { ...person, memberId: '', passengerCount: 0, confirmed: false, joinedAt: '' }), routePreview: p ? preview(state.trips.find(t => t.value.id === r.source)?.value.route?.path ?? []) : [] };
+  return { ...summary(r), myRole: p?.role ?? 'NONE', myTripId: p?.tripId ?? null, termsVersion: r.termsVersion, readOnly: !joinable(r), canJoin: !p && joinable(r) && !r.hidden && seats(r) > 0, canConfirm: !!p && !p.confirmed && joinable(r) && !!r.meetingPoint, allConfirmed: active(r).length >= 2 && active(r).every(p => p.confirmed), participants: r.participants.map(({ tripId: _tripId, ...person }) => p ? person : { ...person, memberId: '', passengerCount: 0, confirmed: false, joinedAt: '' }), routePreview: preview(state.trips.find(t => t.value.id === r.source)?.value.route?.path ?? []) };
 }
 function checkConfirmed(r: Room) {
   if (joinable(r) && r.meetingPoint && active(r).length >= 2 && active(r).every(p => p.confirmed)) {
@@ -172,10 +173,16 @@ export const mockClient: ApiClient = {
     me: () => apiCall(() => caller()),
     agree: b => apiCall(() => { valid(b.policyVersion.trim()); const m = caller(true); return m.locationConsent = { id: uuid(), policyVersion: b.policyVersion, agreedAt: now() }; }),
     withdraw: () => apiCall(() => { const m = caller(); m.locationConsent = null; state.trips.filter(t => t.owner === m.id && activeTrip(t.value)).forEach(cancelTrip); }),
+    agreeServices: b => apiCall(() => { valid(b.policyVersion.trim()); const items = [...new Set(b.items)]; valid(REQUIRED_SERVICE_ITEMS.every(i => items.includes(i))); const m = caller(true); return m.servicesConsent = { id: uuid(), policyVersion: b.policyVersion, items, agreedAt: now() }; }),
+    withdrawServices: () => apiCall(() => { caller().servicesConsent = null; }),
   },
   places: {
     search: q => apiCall(() => { caller(); valid(q.trim()); return fixtures.filter(p => `${p.name} ${p.address}`.includes(q.trim())).slice(0, 10); }),
     reverse: p => apiCall(() => { caller(); validatePoint(p); const nearest = [...fixtures].sort((a, b) => distance(a.location, p) - distance(b.location, p))[0]; return { location: p, kind: 'MAP_PICK', name: `${nearest.name} 인근 지도 선택`, address: '경기도 시흥시 · 모식도 선택 위치' }; }),
+  },
+  routes: {
+    // Mock: no pedestrian network; straight-line estimate like the backend fallback.
+    walk: (f, t) => apiCall(() => { caller(); validatePoint(f); validatePoint(t); const d = distance(f, t) * 1.3; return { source: 'ESTIMATE' as const, distanceMeters: Math.round(d), durationSeconds: Math.ceil(d / 1.2), path: [f, t] }; }),
   },
   trips: {
     create: b => apiCall(() => { const m = consent(); if (state.trips.some(t => t.owner === m.id && activeTrip(t.value))) fail('ACTIVE_TRIP_EXISTS'); validatePoint(b.origin.location); validatePoint(b.destination.location); validateDeparture(b.desiredDepartureAt); valid(Number.isInteger(b.passengerCount) && b.passengerCount >= 1 && b.passengerCount <= 3); valid(Number.isInteger(b.maxWaitMinutes) && b.maxWaitMinutes >= 0 && b.maxWaitMinutes <= 60 && Number.isInteger(b.maxDetourMinutes) && b.maxDetourMinutes >= 0 && b.maxDetourMinutes <= 30); valid(distance(b.origin.location, b.destination.location) >= 50, '출발지와 도착지를 다르게 선택해 주세요.'); return makeTrip(m, b).value; }),
@@ -203,6 +210,12 @@ export const mockClient: ApiClient = {
   },
   rooms: {
     create: b => apiCall(() => { consent(); const t = ownedTrip(b.sourceTripId); if (!searching(t.value)) fail('TRIP_NOT_SEARCHABLE'); freeTrip(t); valid(Number.isInteger(b.capacity) && b.capacity >= 2 && b.capacity <= 4 && b.capacity >= t.value.passengerCount); validateTerms(b.terms); if (b.departureAt) validateDeparture(b.departureAt); const r = makeRoom(t, b.capacity, b.terms, b.departureAt); addMessage(r, '동행방을 만들었어요. 만날 장소를 정해 주세요.'); return detail(r); }),
+    open: near => apiCall(() => {
+      const m = caller(); if (near) validatePoint(near);
+      const list = state.rooms.filter(r => joinable(r) && !r.hidden && seats(r) > 0 && !active(r).some(p => p.memberId === m.id)).map(summary).filter(r => Date.parse(r.departureWindowEnd) > Date.now());
+      if (!near) return list.sort((a, b) => Date.parse(a.departureAt) - Date.parse(b.departureAt)).slice(0, 10);
+      return list.map(r => ({ r, d: distance(r.approxOrigin, near) })).filter(x => x.d <= 3000).sort((a, b) => a.d - b.d).slice(0, 10).map(x => x.r);
+    }),
     mine: () => apiCall(() => state.rooms.filter(r => active(r).some(p => p.memberId === caller().id) && (!r.endedAt || Date.now() - Date.parse(r.endedAt) <= 86400000)).map(summary).reverse()),
     get: id => apiCall(() => { caller(); return detail(room(id)); }),
     join: (id, b) => apiCall(() => {
@@ -262,7 +275,7 @@ export function addDemoParticipant(id: string): Promise<void> {
   return apiCall(() => {
     const r = room(id); host(r); editable(r); if (seats(r) < 1) fail('ROOM_FULL');
     const source = getTrip(r.source).value;
-    const m = makeMember(`체험메이트${state.members.length}`); m.locationConsent = { id: uuid(), policyVersion: 'v1', agreedAt: now() };
+    const m = makeMember(`체험메이트${state.members.length}`); m.locationConsent = { id: uuid(), policyVersion: 'v1', agreedAt: now() }; m.servicesConsent = { id: uuid(), policyVersion: 'v1', items: ['KAKAO', 'TMAP'], agreedAt: now() };
     const t = makeTrip(m, { ...source, desiredDepartureAt: r.departureAt, passengerCount: 1 });
     r.participants.push({ memberId: m.id, nickname: m.nickname, role: 'MEMBER', status: 'ACTIVE', passengerCount: 1, confirmed: false, joinedAt: now(), tripId: t.value.id });
     r.status = 'COORDINATING'; addMessage(r, '안녕하세요! 약속을 확인하고 함께 갈게요.', m); changed(r);

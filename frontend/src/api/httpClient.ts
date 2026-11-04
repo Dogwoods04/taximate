@@ -24,11 +24,12 @@ const query = (values: Record<string, string | number | undefined>) => {
 const rid = (id: string) => `/rooms/${encodeURIComponent(id)}`;
 const tid = (id: string) => `/trips/${encodeURIComponent(id)}`;
 export const httpClient: ApiClient = {
-  identity: { login: b => request('/auth/dev-login', 'POST', b), me: () => request('/me'), agree: b => request('/me/consents/location', 'POST', b), withdraw: () => request('/me/consents/location', 'DELETE') },
+  identity: { login: b => request('/auth/dev-login', 'POST', b), me: () => request('/me'), agree: b => request('/me/consents/location', 'POST', b), withdraw: () => request('/me/consents/location', 'DELETE'), agreeServices: b => request('/me/consents/services', 'POST', b), withdrawServices: () => request('/me/consents/services', 'DELETE') },
   places: { search: (q, p) => request(`/places/search?${query({ query: q, ...p })}`), reverse: p => request(`/places/reverse?${query({ ...p })}`) },
+  routes: { walk: (f, t) => request(`/routes/walk?${query({ fromLat: f.lat, fromLng: f.lng, toLat: t.lat, toLng: t.lng })}`) },
   trips: { create: b => request('/trips', 'POST', b), active: () => request('/trips/active'), get: id => request(tid(id)), route: id => request(`${tid(id)}/route`, 'POST'), cancel: id => request(`${tid(id)}/cancel`, 'POST'), candidates: id => request(`${tid(id)}/candidates`) },
   rooms: {
-    create: b => request('/rooms', 'POST', b), mine: () => request('/rooms/mine'), get: id => request(rid(id)),
+    create: b => request('/rooms', 'POST', b), open: p => request(`/rooms/open${p ? `?${query({ lat: p.lat, lng: p.lng })}` : ''}`), mine: () => request('/rooms/mine'), get: id => request(rid(id)),
     join: (id, b) => request(`${rid(id)}/join`, 'POST', b), leave: id => request(`${rid(id)}/leave`, 'POST'), remove: (id, mid) => request(`${rid(id)}/participants/${encodeURIComponent(mid)}/remove`, 'POST'),
     plan: (id, b) => request(`${rid(id)}/plan`, 'PUT', b), confirm: (id, b) => request(`${rid(id)}/confirm`, 'POST', b), close: id => request(`${rid(id)}/close`, 'POST'), cancel: id => request(`${rid(id)}/cancel`, 'POST'), suggestions: id => request(`${rid(id)}/meeting-point-suggestions`),
   },

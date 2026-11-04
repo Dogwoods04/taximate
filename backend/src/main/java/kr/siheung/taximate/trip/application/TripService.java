@@ -105,6 +105,7 @@ public class TripService implements TripApi {
         try { r.pathJson=mapper.writeValueAsString(result.path()); }
         catch (JsonProcessingException e) { throw new IllegalStateException("Cannot serialize route", e); }
         r.distanceMeters=result.distanceMeters(); r.durationSeconds=result.durationSeconds();
+        r.taxiFareWon=result.taxiFareWon();
         r.providerRequestId=result.providerRequestId(); r.calculatedAt=now();
         r.expiresAt=r.calculatedAt.plusMinutes(routeProperties.snapshotTtlMinutes());
         routes.saveAndFlush(r); t.routeSnapshotId=r.id; t.routeError=null; t.status=TripStatus.SEARCHING; t.updatedAt=now();
@@ -162,7 +163,7 @@ public class TripService implements TripApi {
         if (t.routeSnapshotId == null) return null;
         return routes.findById(t.routeSnapshotId).map(r -> {
             try { return new RouteView(r.id,r.provider,r.distanceMeters,r.durationSeconds,
-                    mapper.readValue(r.pathJson,new TypeReference<List<LatLng>>(){}),r.calculatedAt,r.expiresAt); }
+                    mapper.readValue(r.pathJson,new TypeReference<List<LatLng>>(){}),r.taxiFareWon,r.calculatedAt,r.expiresAt); }
             catch (JsonProcessingException e) { throw new IllegalStateException("Invalid stored route",e); }
         }).orElse(null);
     }

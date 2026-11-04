@@ -11,8 +11,12 @@ export interface ApiClient {
     me(): Promise<C.Member>;
     agree(body: C.LocationConsentRequest): Promise<C.LocationConsent>;
     withdraw(): Promise<void>;
+    agreeServices(body: C.ServicesConsentRequest): Promise<C.ServicesConsent>;
+    withdrawServices(): Promise<void>;
   };
   places: { search(query: string, bias?: C.LatLng): Promise<C.PlaceRef[]>; reverse(point: C.LatLng): Promise<C.PlaceRef> };
+  /** Pedestrian route (TMAP) for the walk to a boarding spot; straight-line estimate as fallback. Never stored. */
+  routes: { walk(from: C.LatLng, to: C.LatLng): Promise<C.WalkRoute> };
   trips: {
     create(body: C.CreateTripRequest): Promise<C.TripIntent>;
     active(): Promise<C.TripIntent | null>;
@@ -23,6 +27,8 @@ export interface ApiClient {
   };
   rooms: {
     create(body: C.CreateRoomRequest): Promise<C.RoomDetail>;
+    /** Joinable rooms; `near` is a one-shot GPS fix used only for this request (never stored). */
+    open(near?: C.LatLng): Promise<C.RoomSummary[]>;
     mine(): Promise<C.RoomSummary[]>;
     get(id: string): Promise<C.RoomDetail>;
     join(id: string, body: C.JoinRoomRequest): Promise<C.RoomDetail>;

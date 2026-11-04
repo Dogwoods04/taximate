@@ -19,10 +19,12 @@ export function preview(path: LatLng[]): LatLng[] {
   const cumulative = points.map((p, i) => { if (i) walked += distance(points[i - 1], p); return walked; });
   return points.filter((_, i) => cumulative[i] >= 200 && cumulative[i] <= walked - 200).filter((_, i) => i % 3 === 0).map(mask);
 }
+/** Mock taxi fare (KRW): 4,800 base up to 1.6km, then 100 per started 131m. */
+export const mockFare = (meters: number) => 4800 + 100 * Math.ceil(Math.max(0, meters - 1600) / 131);
 export function route(origin: LatLng, destination: LatLng): RouteSnapshot {
   const path = [origin, { lat: destination.lat, lng: origin.lng }, destination];
   const meters = distance(path[0], path[1]) + distance(path[1], path[2]);
-  return { id: crypto.randomUUID(), provider: 'MOCK', distanceMeters: Math.round(meters), durationSeconds: Math.max(60, Math.round(meters / 8)), path, calculatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1800000).toISOString() };
+  return { id: crypto.randomUUID(), provider: 'MOCK', distanceMeters: Math.round(meters), durationSeconds: Math.max(60, Math.round(meters / 8)), path, taxiFareWon: mockFare(meters), calculatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1800000).toISOString() };
 }
 export function routeComparison(a: LatLng[], b: LatLng[]) {
   const points = sample(a), other = sample(b);

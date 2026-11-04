@@ -18,6 +18,9 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Each module owns a version range (V10-19 identity, V20-29 trip, ...), so a new migration in a lower
+    # range can arrive after higher ones are applied. Allow it instead of renumbering.
+    out-of-order: true
   jackson:
     time-zone: Asia/Seoul
     serialization:
@@ -52,6 +55,10 @@ taximate:
     rest-api-key: ${KAKAO_REST_API_KEY:}
     local-base-url: https://dapi.kakao.com
     mobility-base-url: https://apis-navi.kakaomobility.com
+    timeout-millis: 3000
+  walking:
+    tmap-app-key: ${TMAP_APP_KEY:}     # SK open API (TMAP pedestrian route). Empty => straight-line estimate
+    tmap-base-url: https://apis.openapi.sk.com
     timeout-millis: 3000
   route:
     snapshot-ttl-minutes: 30

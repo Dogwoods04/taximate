@@ -20,18 +20,19 @@ export default function ReportDialog({ target, onClose }: { target: ReportTarget
 
   return (
     <Sheet title={`${targetTypeLabel[target.type]} 신고`} onClose={onClose}>
-      <p className="mb-3 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">대상: {target.preview}</p>
-      <label className="label">신고 사유</label>
-      <div className="mb-3 grid grid-cols-2 gap-2">
+      <p className="mb-5 truncate rounded-2xl bg-fog-soft px-4 py-3 text-sm text-mute-dark">{target.preview || '(내용 없음)'}</p>
+      <h3 className="mb-2 text-[13px] font-semibold text-mute">신고 사유</h3>
+      <div className="mb-5 grid grid-cols-2 gap-2">
         {(Object.keys(reportReasonLabel) as ReportReason[]).map(r => (
-          <button key={r} type="button" onClick={() => setReason(r)} className={`rounded-xl border px-3 py-2 text-sm ${reason === r ? 'border-brand-600 bg-brand-50 font-semibold text-brand-700' : 'border-slate-200'}`}>
+          <button key={r} type="button" onClick={() => setReason(r)}
+            className={`rounded-2xl px-3 py-3 text-[14px] font-medium transition ${reason === r ? 'bg-ink text-white' : 'bg-fog-soft text-ink'}`}>
             {reportReasonLabel[r]}
           </button>
         ))}
       </div>
-      <label className="label" htmlFor="report-detail">상세 내용 (선택, 500자 이내)</label>
-      <textarea id="report-detail" className="input mb-4 h-24" maxLength={500} value={detail} onChange={e => setDetail(e.target.value)} placeholder="어떤 일이 있었는지 알려 주세요." />
-      <button type="button" className="btn-primary w-full" disabled={busy} onClick={submit}>신고하기</button>
+      <label className="mb-2 block text-[13px] font-semibold text-mute" htmlFor="report-detail">상세 내용 (선택, 500자)</label>
+      <textarea id="report-detail" className="field mb-5 min-h-[96px] resize-none" maxLength={500} value={detail} onChange={e => setDetail(e.target.value)} placeholder="어떤 일이 있었는지 알려 주세요." />
+      <button type="button" className="btn-ink w-full" disabled={busy} onClick={submit}>신고하기</button>
     </Sheet>
   );
 }
