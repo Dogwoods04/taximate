@@ -35,9 +35,8 @@ function RequireAuth({ children, admin = false, consent = false }: { children: R
   if (loading) return <div className="absolute inset-0 grid place-items-center bg-ink"><div className="spinner" style={{ borderColor: 'rgba(255,255,255,.15)', borderTopColor: '#FFD966' }} /></div>;
   if (!member) return <Navigate to="/start" replace />;
   if (admin && member.role !== 'ADMIN') return <Navigate to="/" replace />;
-  // The map screens request a one-shot GPS fix, so the location notice must be agreed first.
-  if (consent && !member.locationConsent) return <Navigate to="/consent" replace state={{ from: location.pathname }} />;
-  // Step 3: the external services (Kakao, TMAP) must be agreed item by item before using the map.
-  if (consent && !member.servicesConsent) return <Navigate to="/services" replace state={{ from: location.pathname }} />;
+  // Map screens need both agreements (location notice, external services). Anyone who hasn't finished them —
+  // including people with a saved session from before a step was added — starts over from the Start screen.
+  if (consent && (!member.locationConsent || !member.servicesConsent)) return <Navigate to="/start" replace state={{ from: location.pathname }} />;
   return <>{children}</>;
 }

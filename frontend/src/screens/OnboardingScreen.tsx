@@ -5,7 +5,7 @@ import { session } from '../api/client';
 import { useAction, useApp } from '../lib/app';
 import { formatTime } from '../lib/format';
 import { ArrowIcon, CheckIcon, ChevronLeftIcon, InfoIcon } from '../components/icons';
-import { REQUIRED_SERVICE_ITEMS } from '../api/contract';
+import { REQUIRED_SERVICE_ITEMS, type Member } from '../api/contract';
 
 export const SERVICES_NOTICE_VERSION = '2026-11-v1';
 
@@ -18,6 +18,7 @@ export default function OnboardingScreen({ consentOnly = false, servicesOnly = f
   const [step, setStep] = useState<Step>(servicesOnly ? 'services' : consentOnly ? 'consent' : 'intro');
   const [leaving, setLeaving] = useState(false);
   const loggedInHere = useRef(false);
+  const navigate = useNavigate();
 
   const go = (next: Step) => {
     setLeaving(true);
@@ -27,12 +28,13 @@ export default function OnboardingScreen({ consentOnly = false, servicesOnly = f
   const only = consentOnly || servicesOnly;
   if (!only && session.get() && loading) return <Dark><div className="grid flex-1 place-items-center"><div className="spinner" style={{ borderColor: 'rgba(255,255,255,.15)', borderTopColor: '#FFD966' }} /></div></Dark>;
   // A saved session skips the intro entirely.
-  if (!only && member && !loggedInHere.current) return <Navigate to="/" replace />;
+  const onboarded = !!member?.locationConsent && !!member?.servicesConsent;
+  if (!only && member && onboarded && !loggedInHere.current) return <Navigate to="/" replace />;
 
   return (
     <Dark>
       {step === 'intro' && <Intro leaving={leaving} onStart={() => go('name')} />}
-      {step === 'name' && <NameStep leaving={leaving} onBack={() => go('intro')} onDone={hasConsent => { loggedInHere.current = true; if (!hasConsent) go('consent'); }} />}
+      {step === 'name' && <NameStep leaving={leaving} onBack={() => go('intro')} onDone={m => { loggedInHere.current = true; if (!m.locationConsent) go('consent'); else if (!m.servicesConsent) go('services'); else navigate('/', { replace: true }); }} />}
       {step === 'consent' && <ConsentStep leaving={leaving} />}
       {step === 'services' && <ServicesStep leaving={leaving} />}
     </Dark>
@@ -106,7 +108,7 @@ function RouteArt({ leaving }: { leaving: boolean }) {
 
 // ---------------------------------------------------------------- 사용자 이름
 
-function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): void; onDone(hasConsent: boolean): void }) {
+function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): void; onDone(member: Member): void }) {
   const { setMember } = useApp();
   const { busy, run } = useAction();
   const navigate = useNavigate();
@@ -122,9 +124,8 @@ function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): voi
     const res = await run(() => api.identity.login({ nickname: trimmed }));
     if (!res) return;
     session.set(res.token);
-    onDone(!!res.member.locationConsent);
     setMember(res.member);
-    if (res.member.locationConsent) navigate('/', { replace: true });
+    onDone(res.member);
   };
 
   return (
