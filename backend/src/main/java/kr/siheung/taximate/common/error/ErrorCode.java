@@ -4,6 +4,9 @@ import org.springframework.http.HttpStatus;
 
 /** Stable error codes shared with the frontend (frontend/src/api/contract.ts ErrorCode). */
 public enum ErrorCode {
+    GENDER_REQUIRED(HttpStatus.CONFLICT),
+    GENDER_SOURCE_LOCKED(HttpStatus.CONFLICT),
+    GENDER_RESTRICTED(HttpStatus.FORBIDDEN),
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST),
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED),
     FORBIDDEN(HttpStatus.FORBIDDEN),

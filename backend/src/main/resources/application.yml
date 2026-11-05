@@ -56,6 +56,8 @@ taximate:
     local-base-url: https://dapi.kakao.com
     mobility-base-url: https://apis-navi.kakaomobility.com
     timeout-millis: 3000
+  demo:
+    keep-alive-prefix: ${DEMO_KEEPALIVE_PREFIX:}   # e.g. 샘플 — keeps rooms of these hosts departing 1–2.5h ahead (UX testing only)
   walking:
     tmap-app-key: ${TMAP_APP_KEY:}     # SK open API (TMAP pedestrian route). Empty => straight-line estimate
     tmap-base-url: https://apis.openapi.sk.com

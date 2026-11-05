@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
-import type { AdminMetrics, ModerationAction, Report, ReportStatus } from '../api/contract';
-import { useAction, useApp, useErrorHandler } from '../lib/app';
-import { formatTime, reportReasonLabel, reportStatusLabel, targetTypeLabel } from '../lib/format';
+import { api } from '../../api';
+import type { AdminMetrics, ModerationAction, Report, ReportStatus } from '../../api/contract';
+import { useAction, useApp, useErrorHandler } from '../../lib/app';
+import { formatTime, reportReasonLabel, reportStatusLabel, targetTypeLabel } from '../../lib/format';
 import { RefreshIcon } from '../components/icons';
 import { Spinner } from '../components/ui';
 import PageShell from './PageShell';
@@ -98,7 +98,7 @@ function ReportCard({ report, onDone }: { report: Report; onDone(): void }) {
       </div>
       <div className="mt-3 rounded-2xl bg-fog-soft px-4 py-3">
         <div className="break-words text-[15px]">{report.targetPreview ?? '(내용 없음)'}</div>
-        {report.targetType === 'ROOM' && <button type="button" className="mt-1 text-xs font-semibold underline" onClick={() => navigate(`/rooms/${report.targetId}`)}>방 보기</button>}
+        {report.targetType === 'ROOM' && <button type="button" className="mt-1 text-xs font-semibold underline" onClick={() => navigate(`/rooms/${report.targetId}`, { state: { moderation: true } })}>방 보기</button>}
       </div>
       {report.detail && <p className="mt-3 leading-relaxed">“{report.detail}”</p>}
       <div className="mt-2 text-xs text-mute">신고자 {report.reporterNickname} · {formatTime(report.createdAt)}</div>

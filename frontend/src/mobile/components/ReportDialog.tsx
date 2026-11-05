@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { api } from '../api';
-import type { ReportReason, ReportTargetType } from '../api/contract';
-import { useAction, useApp } from '../lib/app';
-import { reportReasonLabel, targetTypeLabel } from '../lib/format';
+import { api } from '../../api';
+import type { ReportReason, ReportTargetType } from '../../api/contract';
+import { useAction, useApp } from '../../lib/app';
+import { reportReasonLabel, targetTypeLabel } from '../../lib/format';
 import { Sheet } from './ui';
 
 export interface ReportTarget { type: ReportTargetType; id: string; preview: string }

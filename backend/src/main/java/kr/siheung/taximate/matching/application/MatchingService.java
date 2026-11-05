@@ -37,7 +37,7 @@ public class MatchingService {
         var hosts=trips.getTrips(ids).stream().filter(t -> TripStatus.SEARCHABLE.contains(t.status()))
                 .collect(Collectors.toMap(TripIntentView::id,Function.identity()));
         List<Candidate> candidates=new ArrayList<>();
-        if (!ids.isEmpty()) for (var room : rooms.findJoinableRoomsBySourceTripIds(ids)) {
+        if (!ids.isEmpty()) for (var room : rooms.findJoinableRoomsBySourceTripIds(ids,memberId)) {
             if (room.seatsLeft() < mine.passengerCount() || !room.departureWindowEnd().isAfter(now)) continue;
             var host=hosts.get(room.sourceTripId()); var distance=distances.get(room.sourceTripId());
             if (host == null || distance == null || room.activeParticipantTripIds().contains(tripId)) continue;
@@ -45,7 +45,7 @@ public class MatchingService {
                 int origin=masker.roundDistance(distance.originDistanceMeters()), destination=masker.roundDistance(distance.destinationDistanceMeters());
                 candidates.add(new Candidate(room.roomId(),distance.originDistanceMeters() <= props.priorityRadiusMeters() ? Tier.NEAR : Tier.EXTENDED,
                         origin,destination,round(s.departureDiffMinutes()),round(s.overlapRatio()),round(s.estimatedDetourMinutes()),room.seatsLeft(),s.score(),
-                        List.of("출발지 "+origin+"m","경로 "+Math.round(s.overlapRatio()*100)+"% 겹침","추가 이동 약 "+Math.round(s.estimatedDetourMinutes())+"분"),
+                        List.of("출발지 "+origin+"m","목적지 "+destination+"m","경로 "+Math.round(s.overlapRatio()*100)+"% 겹침","추가 이동 약 "+Math.round(s.estimatedDetourMinutes())+"분"),
                         room.summary(),masker.trimPathEnds(host.route().path())));
             });
         }

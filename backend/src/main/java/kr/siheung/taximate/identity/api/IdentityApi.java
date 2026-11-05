@@ -12,6 +12,8 @@ public interface IdentityApi {
 
     /** @throws kr.siheung.taximate.common.error.ApiException NOT_FOUND */
     MemberSnapshot getMember(UUID memberId);
+    /** Private eligibility lookup; nullable until chosen. Never serialize publicly. */
+    Gender getGender(UUID memberId);
 
     /** Missing ids are simply absent from the result. */
     Map<UUID, MemberSnapshot> getMembers(Collection<UUID> memberIds);

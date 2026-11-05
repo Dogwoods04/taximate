@@ -9,6 +9,7 @@ export interface ApiClient {
   identity: {
     login(body: C.DevLoginRequest): Promise<C.DevLoginResponse>;
     me(): Promise<C.Member>;
+    setGender(body: { gender: C.Gender }): Promise<C.Member>;
     agree(body: C.LocationConsentRequest): Promise<C.LocationConsent>;
     withdraw(): Promise<void>;
     agreeServices(body: C.ServicesConsentRequest): Promise<C.ServicesConsent>;
@@ -35,6 +36,7 @@ export interface ApiClient {
     leave(id: string): Promise<C.RoomDetail>;
     remove(id: string, memberId: string): Promise<C.RoomDetail>;
     plan(id: string, body: C.UpdatePlanRequest): Promise<C.RoomDetail>;
+    destination(id: string, body: C.UpdateDestinationRequest): Promise<C.RoomDetail>;
     confirm(id: string, body: C.ConfirmRequest): Promise<C.RoomDetail>;
     close(id: string): Promise<C.RoomDetail>;
     cancel(id: string): Promise<C.RoomDetail>;

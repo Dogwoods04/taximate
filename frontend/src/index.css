@@ -17,6 +17,11 @@ button { -webkit-user-select: none; user-select: none; }
   /* Clip, don't scroll: focusing an input inside a sheet must never scroll the frame/map layer. */
   .clip-layer { overflow: hidden; overflow: clip; }
   @media (min-width: 480px) { .app-frame { box-shadow: 0 0 0 1px rgba(0,0,0,.04), 0 24px 64px rgba(0,0,0,.18); } }
+  /* Android / other mobile: the keyboard overlays the page, so lib/platform.ts sizes the frame to the
+     visual viewport (--app-h) and follows any pan (--app-top). iOS keeps 100dvh (Safari pans by itself). */
+  html[data-view="mobile"]:not([data-platform="ios"]) .app-frame { height: var(--app-h, 100dvh); transform: translateY(var(--app-top, 0px)); }
+  /* Inside the PC phone frame: no desktop drop shadow, the frame draws the device. */
+  html[data-embedded="true"] .app-frame { box-shadow: none; max-width: none; }
 
   .btn { @apply inline-flex h-14 items-center justify-center gap-2 rounded-card px-6 text-[17px] font-semibold transition active:scale-[.98] disabled:cursor-not-allowed disabled:active:scale-100; }
   .btn-ink { @apply btn bg-ink text-white disabled:bg-[#BDBDBD]; }

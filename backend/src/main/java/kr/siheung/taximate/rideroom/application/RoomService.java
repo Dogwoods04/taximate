@@ -73,6 +73,11 @@ public class RoomService implements RideRoomApi {
         identity.requireActive(memberId); TripIntentView t=searchable(request.sourceTripId(),memberId);
         if(t.passengerCount()>request.capacity()) throw error(ErrorCode.ROOM_FULL);
         RideRoom r=new RideRoom(); r.id=UUID.randomUUID(); r.hostMemberId=memberId; r.sourceTripId=t.id(); r.status=RoomStatus.OPEN;
+        r.sameGenderOnly=Boolean.TRUE.equals(request.sameGenderOnly());
+        if(r.sameGenderOnly) {
+            r.restrictedGender=identity.getGender(memberId);
+            if(r.restrictedGender!=Gender.MALE && r.restrictedGender!=Gender.FEMALE) throw error(ErrorCode.GENDER_REQUIRED);
+        }
         r.capacity=request.capacity(); r.departureAt=request.departureAt()==null?t.desiredDepartureAt():request.departureAt();
         r.departureWindowEnd=r.departureAt.plusMinutes(t.maxWaitMinutes());
         if(!r.departureWindowEnd.isAfter(now())) throw error(ErrorCode.VALIDATION_FAILED);
@@ -86,9 +91,11 @@ public class RoomService implements RideRoomApi {
         em.persist(r);
         add(r,memberId,t,Role.HOST); changed(r,"모집방이 만들어졌습니다"); return detail(r.id,memberId);
     }
+    private boolean eligible(RideRoom r,UUID memberId) { return !r.sameGenderOnly || (r.restrictedGender!=null && r.restrictedGender==identity.getGender(memberId)); }
     public RoomDetail join(UUID id,UUID memberId,UUID tripId) {
         RideRoom r=lock(id); identity.requireActive(memberId); RoomParticipant existing=participant(id,memberId);
         if(existing!=null && existing.status==Status.ACTIVE) return detail(id,memberId);
+        if(!eligible(r,memberId)) throw error(ErrorCode.GENDER_RESTRICTED);
         if(!RoomStatus.JOINABLE.contains(r.status) || r.hidden || !r.departureWindowEnd.isAfter(now()) || (existing!=null && existing.status==Status.REMOVED)) throw error(ErrorCode.ROOM_NOT_JOINABLE);
         TripIntentView t=searchable(tripId,memberId);
         if(seats(r)<t.passengerCount()) throw error(ErrorCode.ROOM_FULL);
@@ -101,6 +108,15 @@ public class RoomService implements RideRoomApi {
         if(!r.departureWindowEnd.isAfter(now())) throw error(ErrorCode.VALIDATION_FAILED);
         r.meetingPoint(plan.meetingPoint()); r.terms(plan.terms()); r.termsVersion++;
         active(id).forEach(p->p.confirmedTermsVersion=null); changed(r,"만남 장소와 탑승 조건이 변경되었습니다. 다시 확인해 주세요"); return detail(id,memberId);
+    }
+    public RoomDetail destination(UUID id,UUID memberId,RoomRequests.Destination request) {
+        RideRoom r=lock(id); host(r,memberId); identity.requireActive(memberId); joinable(r);
+        if(r.hidden || !r.departureWindowEnd.isAfter(now())) throw error(ErrorCode.ROOM_NOT_JOINABLE);
+        trips.updateDestination(r.sourceTripId,memberId,request.destination());
+        r.termsVersion++; active(id).forEach(p->p.confirmedTermsVersion=null);
+        String name=request.destination().name();
+        changed(r,"방장이 목적지를 "+(name==null || name.isBlank()?"새 장소":name)+"(으)로 바꿨어요");
+        return detail(id,memberId);
     }
     public RoomDetail confirm(UUID id,UUID memberId,int version) {
         RideRoom r=lock(id); identity.requireActive(memberId); RoomParticipant p=requireParticipant(id,memberId);
@@ -124,7 +140,7 @@ public class RoomService implements RideRoomApi {
     public RoomDetail leave(UUID id,UUID memberId) {
         RideRoom r=lock(id); joinable(r); RoomParticipant p=requireParticipant(id,memberId);
         if(p.role==Role.HOST) throw ApiException.forbidden("Host must cancel the room");
-        depart(r,p,Status.LEFT); return detail(id,memberId);
+        depart(r,p,Status.LEFT); return detail(id,memberId,true);
     }
     public RoomDetail remove(UUID id,UUID hostId,UUID memberId) {
         RideRoom r=lock(id); host(r,hostId); joinable(r); RoomParticipant p=requireParticipant(id,memberId);
@@ -158,7 +174,7 @@ public class RoomService implements RideRoomApi {
     }
     private RoomSummaryDto summary(RideRoom r,TripIntentView t) {
         List<RoomParticipant> a=active(r.id);
-        return new RoomSummaryDto(r.id,r.status,identity.getMember(r.hostMemberId).nickname(),masker.approximate(t.origin()==null?null:t.origin().location()),masker.approximate(t.destination()==null?null:t.destination().location()),masker.areaLabel(t.origin()),masker.areaLabel(t.destination()),r.departureAt,r.departureWindowEnd,r.capacity,r.capacity-a.stream().mapToInt(p->p.passengerCount).sum(),a.size(),r.terms(),r.meetingPoint(),t.route()==null?null:t.route().taxiFareWon(),publicName(t.origin()),publicName(t.destination()));
+        return new RoomSummaryDto(r.id,r.status,identity.getMember(r.hostMemberId).nickname(),masker.approximate(t.origin()==null?null:t.origin().location()),masker.approximate(t.destination()==null?null:t.destination().location()),masker.areaLabel(t.origin()),masker.areaLabel(t.destination()),r.departureAt,r.departureWindowEnd,r.capacity,r.capacity-a.stream().mapToInt(p->p.passengerCount).sum(),a.size(),r.terms(),r.meetingPoint(),t.route()==null?null:t.route().taxiFareWon(),publicName(t.origin()),publicName(t.destination()),r.sameGenderOnly);
     }
     private static final Set<PlaceKind> NAMED_KINDS=EnumSet.of(PlaceKind.SEARCH,PlaceKind.STATION_EXIT,PlaceKind.BUS_STOP,PlaceKind.LANDMARK);
     /** Public place/building name only (never PlaceRef.address); null for GPS/MAP_PICK or blank names. */
@@ -166,8 +182,11 @@ public class RoomService implements RideRoomApi {
         return p==null||p.kind()==null||!NAMED_KINDS.contains(p.kind())||p.name()==null||p.name().isBlank()?null:p.name().strip();
     }
     public record ParticipantDto(UUID memberId,String nickname,Role role,Status status,int passengerCount,boolean confirmed,OffsetDateTime joinedAt) {}
-    public RoomDetail detail(UUID id,UUID memberId) {
+    public RoomDetail detail(UUID id,UUID memberId) { return detail(id,memberId,false); }
+    // Leaving must remain possible after a member changes their private gender.
+    private RoomDetail detail(UUID id,UUID memberId,boolean justLeft) {
         RideRoom r=room(id); List<RoomParticipant> ps=participants(id); RoomParticipant mine=ps.stream().filter(p->p.memberId.equals(memberId)&&p.status==Status.ACTIVE).findFirst().orElse(null);
+        if(mine==null && !justLeft && !eligible(r,memberId)) throw ApiException.notFound("Room");
         boolean all=active(id).size()>=2 && active(id).stream().allMatch(p->Objects.equals(p.confirmedTermsVersion,r.termsVersion));
         Map<UUID,MemberSnapshot> names=identity.getMembers(ps.stream().map(p->p.memberId).toList());
         // Non-members see only ACTIVE participants (same Participant shape, no location data); members also see LEFT/REMOVED history.
@@ -195,6 +214,7 @@ public class RoomService implements RideRoomApi {
         List<RideRoom> eligible=em.createQuery("""
                 select r from RideRoom r
                 where r.status in :statuses and r.hidden=false and r.departureWindowEnd>:now
+                and (r.sameGenderOnly=false or r.restrictedGender=:gender)
                 and not exists (select p.id from RoomParticipant p
                     where p.roomId=r.id and p.memberId=:member and p.status=:active)
                 and r.capacity > (select coalesce(sum(p.passengerCount),0) from RoomParticipant p
@@ -203,7 +223,7 @@ public class RoomService implements RideRoomApi {
                 """,RideRoom.class)
             .setParameter("statuses",RoomStatus.JOINABLE).setParameter("now",now())
             .setParameter("member",memberId).setParameter("active",Status.ACTIVE)
-            .setMaxResults(lat==null?10:500).getResultList();
+            .setParameter("gender",identity.getGender(memberId)).setMaxResults(lat==null?10:500).getResultList();
         if(lat==null) return eligible.stream().map(this::summary).toList();
         LatLng caller=LatLng.of(lat,lng);
         Map<UUID,TripIntentView> hosts=trips.getTrips(eligible.stream().map(r->r.sourceTripId).toList())
@@ -220,10 +240,10 @@ public class RoomService implements RideRoomApi {
                 .thenComparing(n->n.room().departureAt).thenComparing(n->n.room().id))
             .limit(10).map(n->summary(n.room(),n.trip())).toList();
     }
-    @Override public List<RoomMatchView> findJoinableRoomsBySourceTripIds(Collection<UUID> ids) {
+    @Override public List<RoomMatchView> findJoinableRoomsBySourceTripIds(Collection<UUID> ids,UUID requesterMemberId) {
         if(ids.isEmpty()) return List.of();
         return em.createQuery("from RideRoom where sourceTripId in :ids and status in :statuses and hidden=false and departureWindowEnd>:now",RideRoom.class)
-            .setParameter("ids",ids).setParameter("statuses",RoomStatus.JOINABLE).setParameter("now",now()).getResultList().stream().filter(r->seats(r)>0)
+            .setParameter("ids",ids).setParameter("statuses",RoomStatus.JOINABLE).setParameter("now",now()).getResultList().stream().filter(r->eligible(r,requesterMemberId)).filter(r->seats(r)>0)
             .map(r->new RoomMatchView(r.id,r.sourceTripId,r.hostMemberId,r.status,r.capacity,seats(r),r.departureAt,r.departureWindowEnd,active(r.id).stream().map(p->p.tripId).toList(),summary(r))).toList();
     }
     @Override public Set<UUID> findTripIdsInActiveRooms(Collection<UUID> ids) {

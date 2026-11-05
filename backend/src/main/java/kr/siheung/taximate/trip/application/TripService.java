@@ -110,6 +110,19 @@ public class TripService implements TripApi {
         r.expiresAt=r.calculatedAt.plusMinutes(routeProperties.snapshotTtlMinutes());
         routes.saveAndFlush(r); t.routeSnapshotId=r.id; t.routeError=null; t.status=TripStatus.SEARCHING; t.updatedAt=now();
     }
+    @Override @Transactional
+    public void updateDestination(UUID tripId, UUID memberId, kr.siheung.taximate.common.place.PlaceRef destination) {
+        TripIntent t=owned(tripId, memberId, true);
+        if (!TripStatus.SEARCHABLE.contains(t.status) || !t.expiresAt.isAfter(now()))
+            throw new ApiException(ErrorCode.TRIP_NOT_SEARCHABLE, "종료된 이동 요청입니다");
+        identity.requireLocationConsent(memberId);
+        validatePoint(destination.location());
+        t.setPlaces(t.origin(), destination);
+        try { calculate(t); }
+        catch (MobilityException e) {
+            throw new ApiException(ErrorCode.ROUTE_UNAVAILABLE, "경로를 불러올 수 없습니다", Map.of("reason", e.reason().name()));
+        }
+    }
     @Override @Transactional(readOnly=true)
     public TripIntentView getTrip(UUID tripId) { return view(required(tripId, false)); }
     @Override @Transactional(readOnly=true)

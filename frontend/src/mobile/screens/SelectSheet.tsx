@@ -1,12 +1,13 @@
+import GenderChip from '../components/GenderChip';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { api } from '../api';
-import type { LatLng, WalkRoute, MatchCandidate, MatchCandidatesResponse, PlaceRef, RoomDetail, RoomSummary, TripIntent } from '../api/contract';
-import { ROOM_JOINABLE } from '../api/contract';
-import { useAction, useApp, useErrorHandler } from '../lib/app';
-import { isApiError } from '../lib/errors';
-import { destinationTitle, originTitle, riders, formatClock, formatDiff, formatDistance, formatTime, formatWon, meetingKindLabel, minutesOf, perPersonFare } from '../lib/format';
+import { api } from '../../api';
+import type { LatLng, WalkRoute, MatchCandidate, MatchCandidatesResponse, PlaceRef, RoomDetail, RoomSummary, TripIntent } from '../../api/contract';
+import { ROOM_JOINABLE } from '../../api/contract';
+import { useAction, useApp, useErrorHandler } from '../../lib/app';
+import { isApiError } from '../../lib/errors';
+import { destinationTitle, originTitle, riders, formatClock, formatDiff, formatDistance, formatTime, formatWon, meetingKindLabel, minutesOf, perPersonFare } from '../../lib/format';
 import { useMap } from '../components/map/MapLayout';
-import { distanceMeters, locateOnce } from '../lib/geolocate';
+import { distanceMeters, locateOnce } from '../../lib/geolocate';
 import type { MapLayers, MapMarker } from '../components/map/markers';
 import { ArrowIcon, BulbIcon, ChevronLeftIcon, ClockIcon, CloseIcon, PersonIcon, PlusIcon, RefreshIcon, SearchIcon, SwapIcon } from '../components/icons';
 import { Avatar, FARE_DISCLAIMER, Notice, Spinner, Toggle, useSlideIn } from '../components/ui';
@@ -320,7 +321,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
     const joined = await run(() => api.rooms.join(c.roomId, { tripId: trip.id }));
     if (joined) { toast('방에 참여했어요!', 'info'); finish(joined, joined.routePreview.length > 1 ? joined.routePreview : c.routePreview); }
   };
-  const create = async (note: string, luggageAllowed: boolean, party: number) => {
+  const create = async (note: string, luggageAllowed: boolean, party: number, sameGenderOnly: boolean) => {
     if (!trip) return;
     const room = await run(async () => {
       let source = trip;
@@ -332,7 +333,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
         tripRef.current = source;
         setTrip(source);
       }
-      return api.rooms.create({ sourceTripId: source.id, capacity: CAPACITY, terms: { farePolicy: 'EQUAL_SPLIT', luggageAllowed, note: note.trim() || null } });
+      return api.rooms.create({ sourceTripId: source.id, sameGenderOnly, capacity: CAPACITY, terms: { farePolicy: 'EQUAL_SPLIT', luggageAllowed, note: note.trim() || null } });
     });
     if (room) { toast('방을 열었어요. 만날 장소를 정해 주세요.', 'info'); finish(room, trip.route?.path ?? room.routePreview); }
   };
@@ -375,11 +376,14 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
               <CreateArea trip={trip} departureText={departureText} busy={busy} onCancel={() => setMode('list')} onCreate={create} />
             ) : (
               <>
+                {/* Cards + conditions scroll on short phones; the main button below always stays visible. */}
+                <div className="no-scrollbar -mx-6 flex min-h-0 flex-1 flex-col overflow-y-auto px-6">
                 <CardArea phase={phase} result={result} selectedId={selectedId} strip={strip} departureText={departureText}
                   onOpen={openDetail} onRefresh={() => trip && loadCandidates(trip)} onRetryRoute={retryRoute} onCreate={() => setMode('create')} />
                 {phase === 'ready' && (
                   <ConditionRow departureText={departureText} passengers={trip?.passengerCount ?? 1} onChange={onEditDeparture} />
                 )}
+                </div>
                 {phase !== 'idle' && <div className="mt-4 shrink-0">
                   {phase === 'ready' ? (
                     <button type="button" className="btn-ink w-full" onClick={() => setMode('create')}><PlusIcon size={20} /> 새 방 만들기</button>
@@ -501,7 +505,7 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
   phase: Phase; result: MatchCandidatesResponse | null; selectedId: string | null; strip: RefObject<HTMLDivElement>; departureText: string;
   onOpen(c: MatchCandidate): void; onRefresh(): void; onRetryRoute(): void; onCreate(): void;
 }) {
-  const body = 'mt-5 flex min-h-[190px] flex-1 flex-col';
+  const body = 'mt-5 flex min-h-[190px] flex-1 shrink-0 flex-col';
   if (phase === 'idle') {
     return (
       <p className="mt-5 flex shrink-0 items-start gap-2.5 rounded-2xl bg-fog-soft px-4 py-3 text-[13.5px] leading-snug text-mute-dark">
@@ -532,7 +536,7 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
         </div>
       </div>
       {candidates.length ? (
-        <div ref={strip} className="no-scrollbar -mx-6 mt-3 flex snap-x snap-mandatory scroll-px-6 gap-4 overflow-x-auto px-6 pb-1">
+        <div ref={strip} className="no-scrollbar -mx-6 mt-3 flex shrink-0 snap-x snap-mandatory scroll-px-6 gap-4 overflow-x-auto px-6 pb-1">
           {candidates.map(c => <CandidateCard key={c.roomId} c={c} selected={c.roomId === selectedId} onOpen={() => onOpen(c)} />)}
         </div>
       ) : (
@@ -556,6 +560,7 @@ function CandidateCard({ c, selected, onOpen }: { c: MatchCandidate; selected: b
       className={`relative w-[72%] shrink-0 snap-start overflow-hidden rounded-card border bg-white text-left transition active:scale-[.98] ${selected ? 'border-ink' : 'border-line'}`}>
       <div className={`mr-[10%] rounded-br-card pb-3 pl-5 pr-4 pt-3.5 ${near ? 'bg-sun' : 'bg-fog'}`}>
         <div className="text-[12px] font-semibold text-ink/60">{near ? '가까운 방 · 200m 이내' : '조금 더 넓게 · 500m 이내'}</div>
+        <GenderChip enabled={c.room.sameGenderOnly} />
         <CardTags tags={shortTags(c)} />
       </div>
       <div className="px-5 pb-4 pt-3">
@@ -645,11 +650,14 @@ function ConditionRow({ departureText, passengers, onChange }: { departureText: 
 
 // ---------------------------------------------------------------- new room
 
-function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: TripIntent; departureText: string; busy: boolean; onCancel(): void; onCreate(note: string, luggage: boolean, party: number): void }) {
+function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: TripIntent; departureText: string; busy: boolean; onCancel(): void; onCreate(note: string, luggage: boolean, party: number, sameGenderOnly: boolean): void }) {
   const [note, setNote] = useState('');
   /** People riding with the host, host included. At least one seat must stay open for others. */
   const [party, setParty] = useState(Math.min(trip.passengerCount, CAPACITY - 1));
   const [luggage, setLuggage] = useState(true);
+  const { member } = useApp();
+  const eligible = member?.gender === 'MALE' || member?.gender === 'FEMALE';
+  const [sameGenderOnly, setSameGenderOnly] = useState(false);
   const fare = trip.route?.taxiFareWon ?? null;
   return (
     <div className="mt-6 flex min-h-0 flex-1 flex-col">
@@ -667,6 +675,10 @@ function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: T
         </div>
         <div className="mt-2"><Toggle checked={luggage} onChange={setLuggage} label="큰 짐(캐리어 등) 괜찮아요" /></div>
         <div className="mt-2 rounded-card border border-line px-4 py-3">
+          <Toggle checked={eligible && sameGenderOnly} disabled={!eligible} onChange={setSameGenderOnly} label="같은 성별만" />
+          {!eligible && <p className="mt-2 text-[13px] leading-relaxed text-mute">성별을 선택하지 않으면 이 방을 만들거나 찾고 참여할 수 없어요. 메뉴의 내 정보에서 변경할 수 있어요.</p>}
+        </div>
+        <div className="mt-2 rounded-card border border-line px-4 py-3">
           <div className="flex items-center gap-3 text-[15px]">
             <PersonIcon size={20} className="shrink-0 text-mute" />
             <span className="flex-1 font-medium">나 포함 같이 타는 인원</span>
@@ -683,7 +695,7 @@ function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: T
           요금은 똑같이 나눠요{fare != null && <> · 예상 총 {formatWon(fare)} (다 차면 1인 {formatWon(perPersonFare(fare, CAPACITY)!)})</>}. 출발 {formatTime(trip.desiredDepartureAt)}.
         </p>
       </div>
-      <button type="button" className="btn-ink mt-4 w-full shrink-0" disabled={busy} onClick={() => onCreate(note, luggage, party)}>{busy ? '방을 여는 중…' : '방 만들기'}</button>
+      <button type="button" className="btn-ink mt-4 w-full shrink-0" disabled={busy} onClick={() => onCreate(note, luggage, party, eligible && sameGenderOnly)}>{busy ? '방을 여는 중…' : '방 만들기'}</button>
     </div>
   );
 }
@@ -708,6 +720,7 @@ function RoomIntro({ candidate, trip, busy, onBack, onJoin }: { candidate: Match
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-4">
         <p className="text-[15px] text-mute">{originTitle(r)}에서</p>
         <h2 className="mt-1 text-[30px] font-bold leading-tight tracking-[-0.03em]">{destinationTitle(r)}</h2>
+        <GenderChip enabled={r.sameGenderOnly} />
         <div className="no-scrollbar mt-4 flex gap-1.5 overflow-x-auto">
           {candidate.reasons.map(x => <span key={x} className="chip">{x}</span>)}
           <span className="chip">{formatDiff(candidate.departureDiffMinutes)}</span>
@@ -816,6 +829,7 @@ function RoomPreview({ room: summary, detail, walk, busy, onClose, onGo, onCance
         <span className="chip bg-sun text-ink">빈 자리 {r.seatsLeft}</span>
       </div>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-4">
+        <GenderChip enabled={r.sameGenderOnly} />
         <div className="relative flex flex-col gap-3 rounded-card border border-line px-4 py-4">
           <div className="absolute bottom-[34px] left-[26px] top-[34px] border-l-2 border-dotted border-[#C8C8C8]" />
           <div className="flex items-center gap-3">

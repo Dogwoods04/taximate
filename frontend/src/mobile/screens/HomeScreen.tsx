@@ -1,10 +1,11 @@
+import GenderChip from '../components/GenderChip';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, isMock } from '../api';
-import type { LatLng, PlaceRef, RoomDetail, RoomSummary } from '../api/contract';
-import { useApp, useErrorHandler } from '../lib/app';
-import { destinationTitle, originTitle, formatClock, formatDepartureRelative, formatDistance, toLocalInput, toOffsetIso } from '../lib/format';
-import { distanceMeters, locateOnce, SIHEUNG_CITY_HALL } from '../lib/geolocate';
+import { api, isMock } from '../../api';
+import type { LatLng, PlaceRef, RoomDetail, RoomSummary } from '../../api/contract';
+import { useApp, useErrorHandler } from '../../lib/app';
+import { destinationTitle, originTitle, formatClock, formatDepartureRelative, formatDistance, toLocalInput, toOffsetIso } from '../../lib/format';
+import { distanceMeters, locateOnce, SIHEUNG_CITY_HALL } from '../../lib/geolocate';
 import { useMap } from '../components/map/MapLayout';
 import type { MapMarker } from '../components/map/markers';
 import { ArrowIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, LocateIcon, MenuIcon, PersonIcon } from '../components/icons';
@@ -193,7 +194,7 @@ function WhereTo({ label, onOpen, onTime }: { label: string; onOpen(): void; onT
 }
 
 function RoomCards({ rooms, here, onPick }: { rooms: RoomSummary[] | null; here: LatLng | null; onPick(r: RoomSummary): void }) {
-  const card = 'h-[168px] w-[calc((100%-16px)/2)] shrink-0 snap-start rounded-card';
+  const card = 'min-h-[188px] w-[calc((100%-16px)/2)] shrink-0 snap-start rounded-card';
   if (!rooms) {
     return (
       <div className="mt-5 flex gap-4" aria-label="불러오는 중">
@@ -217,6 +218,7 @@ function RoomCards({ rooms, here, onPick }: { rooms: RoomSummary[] | null; here:
         return (
           <button key={r.id} type="button" onClick={() => onPick(r)}
             className={`${card} flex flex-col p-5 text-left transition active:scale-[.98] ${yellow ? 'bg-sun' : 'border border-line bg-white'}`}>
+            <GenderChip enabled={r.sameGenderOnly} />
             <span className="line-clamp-2 text-[18px] font-bold leading-snug tracking-tight">{destinationTitle(r)}</span>
             <span className={`mt-1.5 text-[15px] ${yellow ? 'text-ink/80' : 'text-mute'}`}>{formatDepartureRelative(r.departureAt)}</span>
             <span className={`mt-0.5 flex min-w-0 items-baseline gap-1.5 text-[13px] ${yellow ? 'text-ink/70' : 'text-mute'}`}><span aria-label="출발" className="h-2 w-2 shrink-0 self-center rounded-[2px] bg-[#4F46E5]" /><span className="min-w-0 truncate">{originTitle(r)}</span>{here && <span className="shrink-0 font-semibold">{formatDistance(Math.round(distanceMeters(here, r.approxOrigin) / 10) * 10)}</span>}</span>
@@ -290,7 +292,7 @@ function Menu({ onClose }: { onClose(): void }) {
   const navigate = useNavigate();
   const { shown, close } = useSlideIn(onClose);
   const go = (path: string) => { close(); setTimeout(() => navigate(path), 200); };
-  const items: [string, string][] = [['내 방', '/me/rooms'], ['위치 정보 동의', '/consent'], ['외부 서비스 이용', '/services']];
+  const items: [string, string][] = [['내 정보', '/me'], ['내 방', '/me/rooms'], ['위치 정보 동의', '/consent'], ['외부 서비스 이용', '/services']];
   if (member?.role === 'ADMIN') items.push(['운영자', '/admin']);
   return (
     <FramePortal>

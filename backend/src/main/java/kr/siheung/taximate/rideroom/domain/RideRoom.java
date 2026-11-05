@@ -12,6 +12,8 @@ public class RideRoom {
     @Column(nullable=false) public UUID sourceTripId;
     @Enumerated(EnumType.STRING) @Column(nullable=false,length=20) public RoomStatus status;
     public int capacity;
+    @Column(nullable=false) public boolean sameGenderOnly;
+    @Enumerated(EnumType.STRING) @Column(length=16) public kr.siheung.taximate.identity.api.Gender restrictedGender;
     @Column(nullable=false) public OffsetDateTime departureAt;
     @Column(nullable=false) public OffsetDateTime departureWindowEnd;
     @Enumerated(EnumType.STRING) @Column(nullable=false,length=30) public FarePolicy farePolicy;

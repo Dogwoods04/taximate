@@ -2,6 +2,9 @@ import { ApiError } from '../api/client';
 import type { ErrorCode } from '../api/contract';
 
 export const errorMessages: Record<ErrorCode, string> = {
+  GENDER_REQUIRED: '내 정보에서 성별을 선택해야 같은 성별만 타는 방을 만들 수 있어요.',
+  GENDER_RESTRICTED: '이 방의 참여 조건에 맞지 않아요.',
+  GENDER_SOURCE_LOCKED: '카카오에서 가져온 성별은 직접 변경할 수 없어요.',
   VALIDATION_FAILED: '입력값을 확인해 주세요.',
   UNAUTHENTICATED: '로그인이 필요해요. 다시 로그인해 주세요.',
   FORBIDDEN: '이 작업을 할 권한이 없어요.',

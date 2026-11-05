@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
-import type { LatLng } from '../../api/contract';
-import { prefersReducedMotion } from '../../lib/geolocate';
+import type { LatLng } from '../../../api/contract';
+import { prefersReducedMotion } from '../../../lib/geolocate';
 import { bubbleHtml, fitPadding, markerHtml, ROUTE_COLOR, visibleCenter, type Insets, type MapHandle, type MapLayers } from './markers';
 
 type Command = { type: 'focus'; point: LatLng; insets: Insets; zoom: 'street' | 'keep' } | { type: 'fit'; points: LatLng[]; insets: Insets };

@@ -30,7 +30,7 @@ export type ErrorCode =
   | 'LOCATION_CONSENT_REQUIRED' | 'ACTIVE_TRIP_EXISTS' | 'TRIP_NOT_SEARCHABLE' | 'ROUTE_UNAVAILABLE'
   | 'ROUTE_EXPIRED' | 'ROOM_NOT_JOINABLE' | 'ROOM_FULL' | 'ROOM_READ_ONLY' | 'ALREADY_IN_ROOM'
   | 'TERMS_VERSION_MISMATCH' | 'MEETING_POINT_REQUIRED' | 'LOCK_TIMEOUT' | 'EXTERNAL_API_ERROR'
-  | 'INTERNAL_ERROR';
+  | 'GENDER_REQUIRED' | 'GENDER_RESTRICTED' | 'GENDER_SOURCE_LOCKED' | 'INTERNAL_ERROR';
 export interface ErrorResponse { code: ErrorCode; message: string; details: Record<string, unknown> }
 
 // ---------- status names ----------
@@ -54,12 +54,16 @@ export const ROOM_READ_ONLY: RoomStatus[] = ['CONFIRMED', 'CLOSED', 'CANCELLED',
 export interface DevLoginRequest { nickname: string }
 export interface DevLoginResponse { token: string; member: Member }
 export interface LocationConsent { id: UUID; policyVersion: string; agreedAt: ISODateTime }
-/** External services the app sends data to (step 3 of onboarding). */
+/** External services the app sends data to (step 4 of onboarding). */
 export type ServiceItem = 'KAKAO' | 'TMAP';
 export const REQUIRED_SERVICE_ITEMS: ServiceItem[] = ['KAKAO', 'TMAP'];
 export interface ServicesConsent { id: UUID; policyVersion: string; items: ServiceItem[]; agreedAt: ISODateTime }
 export interface ServicesConsentRequest { policyVersion: string; items: ServiceItem[] }
+export type Gender = 'MALE' | 'FEMALE' | 'UNDISCLOSED';
+export type GenderSource = 'SELF' | 'KAKAO';
 export interface Member {
+  gender: Gender | null;
+  genderSource: GenderSource | null;
   id: UUID;
   nickname: string;
   role: MemberRole;
@@ -144,6 +148,7 @@ export interface MeetingPointSuggestion {
 // ---------- ride-room ----------
 export interface RoomTerms { farePolicy: FarePolicy; luggageAllowed: boolean; note?: string | null }
 export interface CreateRoomRequest {
+  sameGenderOnly?: boolean;
   sourceTripId: UUID;
   capacity: number; // 2–4 persons incl. host
   terms: RoomTerms;
@@ -151,8 +156,11 @@ export interface CreateRoomRequest {
 }
 export interface JoinRoomRequest { tripId: UUID }
 export interface UpdatePlanRequest { meetingPoint: MeetingPoint; departureAt: ISODateTime; terms: RoomTerms }
+/** Host only, JOINABLE and non-hidden room; route failure rolls back the change. */
+export interface UpdateDestinationRequest { destination: PlaceRef }
 export interface ConfirmRequest { termsVersion: number }
 export interface RoomSummary {
+  sameGenderOnly: boolean;
   id: UUID;
   status: RoomStatus;
   hostNickname: string;

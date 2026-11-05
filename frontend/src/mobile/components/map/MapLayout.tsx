@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import type { LatLng } from '../../api/contract';
-import { SIHEUNG_CITY_HALL } from '../../lib/geolocate';
+import type { LatLng } from '../../../api/contract';
+import { SIHEUNG_CITY_HALL } from '../../../lib/geolocate';
 import MapCanvas from './MapCanvas';
 import type { Insets, MapHandle, MapLayers } from './markers';
 

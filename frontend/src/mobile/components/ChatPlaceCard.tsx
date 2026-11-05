@@ -1,0 +1,129 @@
+import { useEffect, useRef, useState } from 'react';
+import { api } from '../../api';
+import type { Message, PlaceRef, RoomDetail } from '../../api/contract';
+import { distance } from '../../api/geo';
+import { useAction } from '../../lib/app';
+
+const normalize = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+
+/** Prefer the last place: “시흥시청 말고 시흥소방서로” means the fire station. */
+function placePhrase(body: string): string | undefined {
+  const proposal = body.match(/^(.+?)\(.+\)을\(를\) 만날 장소나 목적지로 제안해요$/);
+  if (proposal) return proposal[1].trim();
+  const pattern = /[가-힣A-Za-z0-9·]+(?:로|길|동)\s*\d+(?:-\d+)?|[가-힣A-Za-z0-9·]+(?:주민센터|대학교|정류장|터미널|백화점|소방서|아파트|아울렛|병원|학교|센터|공원|시청|구청|마트|빌딩|타워|호텔|카페|은행|역)(?:\s*\d+\s*번?\s*출구)?|\d+\s*번?\s*출구/g;
+  const matches = [...body.matchAll(pattern)];
+  return matches.at(-1)?.[0].trim();
+}
+
+function matchesPlace(phrase: string, place: PlaceRef) {
+  const q = normalize(phrase), name = normalize(place.name ?? ''), address = normalize(place.address ?? '');
+  // A station result must not silently replace a specifically mentioned exit.
+  const exit = q.match(/^(.+역)(\d+)번?출구$/);
+  if (exit) return name.includes(exit[1]) && name.match(/(\d+)번?출구/)?.[1] === exit[2];
+  return name.includes(q) || address.includes(q);
+}
+
+type Suggestion = { phrase: string; place: PlaceRef; messageId: string };
+
+/**
+ * Already the room's meeting place or destination → nothing to suggest. Same name, or close enough:
+ * meeting points carry exact coordinates; the destination shown to members is a ~110 m grid point.
+ */
+function isCurrentPlace(room: RoomDetail, place: PlaceRef) {
+  const name = normalize(place.name ?? '');
+  const mp = room.meetingPoint;
+  if (mp && ((name && normalize(mp.name) === name) || distance(mp.location, place.location) <= 60)) return true;
+  if (name && room.destinationName && normalize(room.destinationName) === name) return true;
+  return distance(room.approxDestination, place.location) <= 150;
+}
+
+export default function ChatPlaceCard({ room, messages, myId, onSaved, onSent }: {
+  room: RoomDetail; messages: Message[]; myId?: string;
+  onSaved(room: RoomDetail): void; onSent(message: Message): void;
+}) {
+  const storageKey = `taximate.chatPlaces.${myId}.${room.id}`;
+  const [handled] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(sessionStorage.getItem(storageKey) ?? '[]') as string[]); }
+    catch { return new Set(); }
+  });
+  const seen = useRef(new Set<string>());
+  const cache = useRef(new Map<string, Promise<PlaceRef | null>>());
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const { busy, run } = useAction();
+  const proposalId = useRef(crypto.randomUUID());
+  const near = room.meetingPoint?.location ?? room.approxOrigin;
+
+  useEffect(() => {
+    if (room.readOnly) { setSuggestion(null); return; }
+    let latest: { phrase: string; messageId: string } | undefined;
+    for (const message of messages) {
+      if (seen.current.has(message.id)) continue;
+      if (message.type !== 'TEXT' || message.hidden || !message.body) continue;
+      const phrase = placePhrase(message.body);
+      if (phrase && !handled.has(normalize(phrase))) latest = { phrase, messageId: message.id };
+    }
+    if (!latest) return;
+    let cancelled = false;
+    const candidate = latest;
+    const timer = setTimeout(() => {
+      // One candidate from a history/burst, never a queue of stale popup cards.
+      setSuggestion(null); setConfirm(false);
+      const key = normalize(candidate.phrase);
+      let lookup = cache.current.get(key);
+      if (!lookup) {
+        lookup = api.places.search(candidate.phrase, near).then(results => {
+          const p = results[0];
+          return p && matchesPlace(candidate.phrase, p) && distance(near, p.location) <= 30000 ? p : null;
+        }).catch(() => null);
+        cache.current.set(key, lookup);
+      }
+      void lookup.then(place => {
+        if (!cancelled) messages.forEach(m => seen.current.add(m.id));
+        if (!cancelled && place && !handled.has(key) && !isCurrentPlace(room, place)) {
+          setSuggestion({ ...candidate, place }); proposalId.current = crypto.randomUUID();
+        }
+      });
+    }, 350);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [messages, room.readOnly, near.lat, near.lng, handled]);
+
+  const dismiss = () => {
+    if (!suggestion) return;
+    handled.add(normalize(suggestion.phrase));
+    handled.add(normalize(suggestion.place.name ?? suggestion.phrase));
+    try { sessionStorage.setItem(storageKey, JSON.stringify([...handled])); } catch { /* private mode */ }
+    setSuggestion(null); setConfirm(false);
+  };
+  // Re-checked on every render: once the host applies it (or it already is the meeting place / destination), hide.
+  if (!suggestion || room.readOnly || isCurrentPlace(room, suggestion.place) || !messages.some(m => m.id === suggestion.messageId && !m.hidden)) return null;
+  const { place } = suggestion;
+  const name = place.name || suggestion.phrase;
+  const apply = async (destination: boolean) => {
+    const updated = await run(() => destination
+      ? api.rooms.destination(room.id, { destination: place })
+      : api.rooms.plan(room.id, {
+        meetingPoint: { name, address: place.address, location: place.location, kind: 'CUSTOM' },
+        departureAt: room.departureAt, terms: room.terms,
+      }));
+    if (updated) { dismiss(); onSaved(updated); }
+  };
+  const propose = async () => {
+    const sent = await run(() => api.messages.send(room.id, {
+      body: `${name}(${place.address || '주소 정보 없음'})을(를) 만날 장소나 목적지로 제안해요`, clientMessageId: proposalId.current,
+    }));
+    if (sent) { dismiss(); onSent(sent); }
+  };
+  return <aside aria-label="채팅 장소 제안" aria-live="polite" className="relative mt-2 shrink-0 rounded-2xl border border-ink/10 bg-sun-pale p-3 text-[13px]">
+    <button type="button" aria-label="장소 제안 닫기" disabled={busy} onClick={dismiss} className="absolute right-1 top-1 grid h-8 w-8 place-items-center text-lg">×</button>
+    <p className="pr-7 font-semibold">{name}</p>
+    <p className="pr-7 text-xs text-mute-dark">{place.address}</p>
+    {room.myRole === 'HOST' ? confirm ? <>
+      <p className="mt-2">목적지를 {name}로 바꾸면 경로·요금이 다시 계산되고 모두 다시 확정해야 해요</p>
+      <div className="mt-2 flex gap-2"><button type="button" disabled={busy} onClick={() => void apply(true)} className="flex-1 rounded-xl bg-ink px-3 py-2 text-white">목적지 변경 확정</button><button type="button" disabled={busy} onClick={() => setConfirm(false)} className="rounded-xl bg-white px-3 py-2">돌아가기</button></div>
+    </> : <>
+      <p className="mt-2">만날 장소나 목적지로 바꿀까요?</p>
+      <div className="mt-2 flex gap-2"><button type="button" aria-label={`만날 장소를 ${name}로 바꿀까요?`} disabled={busy} onClick={() => void apply(false)} className="flex-1 rounded-xl bg-ink px-3 py-2 text-white">만날 장소로</button><button type="button" aria-label={`목적지를 ${name}로 바꿀까요?`} disabled={busy} onClick={() => setConfirm(true)} className="flex-1 rounded-xl bg-white px-3 py-2">목적지로</button></div>
+    </> : <button type="button" disabled={busy} onClick={() => void propose()} className="mt-2 w-full rounded-xl bg-ink px-3 py-2 text-white">방장에게 제안하기</button>}
+  </aside>;
+}

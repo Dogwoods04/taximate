@@ -11,6 +11,9 @@ import java.util.UUID;
  */
 public interface TripApi {
 
+    /** Called inside the room transaction; replaces destination and route atomically, or throws ROUTE_UNAVAILABLE. */
+    void updateDestination(UUID tripId, UUID memberId, kr.siheung.taximate.common.place.PlaceRef destination);
+
     /** @throws kr.siheung.taximate.common.error.ApiException NOT_FOUND */
     TripIntentView getTrip(UUID tripId);
 

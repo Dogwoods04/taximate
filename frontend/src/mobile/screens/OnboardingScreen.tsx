@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { api, isMock } from '../api';
-import { session } from '../api/client';
-import { useAction, useApp } from '../lib/app';
-import { formatTime } from '../lib/format';
+import GenderStep from './GenderStep';
+import { api, isMock } from '../../api';
+import { session } from '../../api/client';
+import { useAction, useApp } from '../../lib/app';
+import { formatTime } from '../../lib/format';
 import { ArrowIcon, CheckIcon, ChevronLeftIcon, InfoIcon } from '../components/icons';
-import { REQUIRED_SERVICE_ITEMS, type Member } from '../api/contract';
+import { REQUIRED_SERVICE_ITEMS, type Member } from '../../api/contract';
 
 export const SERVICES_NOTICE_VERSION = '2026-11-v1';
 
 export const LOCATION_POLICY_VERSION = '2026-11-v1';
-type Step = 'intro' | 'name' | 'consent' | 'services';
+type Step = 'intro' | 'name' | 'gender' | 'consent' | 'services';
 
 /** Start (intro) → 사용자 이름 → 위치 정보 동의 → 외부 서비스 동의, one dark full-screen flow with cross-step motion. */
 export default function OnboardingScreen({ consentOnly = false, servicesOnly = false }: { consentOnly?: boolean; servicesOnly?: boolean }) {
@@ -28,13 +29,14 @@ export default function OnboardingScreen({ consentOnly = false, servicesOnly = f
   const only = consentOnly || servicesOnly;
   if (!only && session.get() && loading) return <Dark><div className="grid flex-1 place-items-center"><div className="spinner" style={{ borderColor: 'rgba(255,255,255,.15)', borderTopColor: '#FFD966' }} /></div></Dark>;
   // A saved session skips the intro entirely.
-  const onboarded = !!member?.locationConsent && !!member?.servicesConsent;
+  const onboarded = !!member?.gender && !!member?.locationConsent && !!member?.servicesConsent;
   if (!only && member && onboarded && !loggedInHere.current) return <Navigate to="/" replace />;
 
   return (
     <Dark>
       {step === 'intro' && <Intro leaving={leaving} onStart={() => go('name')} />}
-      {step === 'name' && <NameStep leaving={leaving} onBack={() => go('intro')} onDone={m => { loggedInHere.current = true; if (!m.locationConsent) go('consent'); else if (!m.servicesConsent) go('services'); else navigate('/', { replace: true }); }} />}
+      {step === 'name' && <NameStep leaving={leaving} onBack={() => go('intro')} onDone={m => { loggedInHere.current = true; if (!m.gender) go('gender'); else if (!m.locationConsent) go('consent'); else if (!m.servicesConsent) go('services'); else navigate('/', { replace: true }); }} />}
+      {step === 'gender' && <GenderStep onDone={m => { if (!m.locationConsent) go('consent'); else if (!m.servicesConsent) go('services'); else navigate('/', { replace: true }); }} />}
       {step === 'consent' && <ConsentStep leaving={leaving} />}
       {step === 'services' && <ServicesStep leaving={leaving} />}
     </Dark>
@@ -131,8 +133,8 @@ function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): voi
   return (
     <form onSubmit={submit} className="flex min-h-full flex-1 flex-col px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(40px,env(safe-area-inset-top))]">
       <button type="button" onClick={onBack} aria-label="뒤로" className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-white/80 transition active:bg-white/10"><ChevronLeftIcon /></button>
-      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 text-[15px] font-semibold text-sun`}>1 / 3</p>
-      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[44px] font-bold leading-[1.1] tracking-[-0.035em]`}>어떻게<br />불러드릴까요?</h1>
+      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 short:mt-5 text-[15px] font-semibold text-sun`}>1 / 4</p>
+      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[44px] short:text-[36px] font-bold leading-[1.1] tracking-[-0.035em]`}>어떻게<br />불러드릴까요?</h1>
       <p {...rise(leaving, 120)} className={`${rise(leaving, 120).className} mt-4 text-[17px] leading-relaxed text-white/55`}>함께 탈 이웃에게 보이는 이름이에요.</p>
 
       <div {...rise(leaving, 180)} className={`${rise(leaving, 180).className} mt-14`}>
@@ -202,10 +204,10 @@ function ConsentStep({ leaving }: { leaving: boolean }) {
       {consent
         ? <button type="button" onClick={() => navigate('/')} aria-label="뒤로" className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-white/80 transition active:bg-white/10"><ChevronLeftIcon /></button>
         : <div className="h-11" />}
-      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 text-[15px] font-semibold text-sun`}>{consent ? '위치 정보 동의' : '2 / 3'}</p>
-      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[44px] font-bold leading-[1.1] tracking-[-0.035em]`}>위치는<br />필요한 순간에만.</h1>
+      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 short:mt-5 text-[15px] font-semibold text-sun`}>{consent ? '위치 정보 동의' : '3 / 4'}</p>
+      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[44px] short:text-[36px] font-bold leading-[1.1] tracking-[-0.035em]`}>위치는<br />필요한 순간에만.</h1>
 
-      <ol className="mt-10 space-y-6">
+      <ol className="mt-10 space-y-6 short:mt-6 short:space-y-4">
         {POINTS.map(([title, body], i) => (
           <li key={title} {...rise(leaving, 120 + i * 60)} className={`${rise(leaving, 120 + i * 60).className} flex gap-4`}>
             <span className="mt-0.5 text-[15px] font-bold tabular-nums text-sun">0{i + 1}</span>
@@ -295,8 +297,8 @@ function ServicesStep({ leaving }: { leaving: boolean }) {
       {agreedAt
         ? <button type="button" onClick={() => navigate('/')} aria-label="뒤로" className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-white/80 transition active:bg-white/10"><ChevronLeftIcon /></button>
         : <div className="h-11" />}
-      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 text-[15px] font-semibold text-sun`}>{agreedAt ? '외부 서비스 이용' : '3 / 3'}</p>
-      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[40px] font-bold leading-[1.12] tracking-[-0.035em]`}>함께 쓰는<br />외부 서비스</h1>
+      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 short:mt-5 text-[15px] font-semibold text-sun`}>{agreedAt ? '외부 서비스 이용' : '4 / 4'}</p>
+      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[40px] short:text-[34px] font-bold leading-[1.12] tracking-[-0.035em]`}>함께 쓰는<br />외부 서비스</h1>
       <p {...rise(leaving, 100)} className={`${rise(leaving, 100).className} mt-4 text-[15px] leading-relaxed text-white/55`}>택시메이트는 아래 서비스를 이용해 지도와 경로를 보여 드려요. 항목마다 확인하고 체크해 주세요.</p>
 
       <button type="button" onClick={toggleAll} disabled={!!agreedAt} {...rise(leaving, 140)}

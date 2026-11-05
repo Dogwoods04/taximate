@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.*;
 public class IdentityController {
     private final IdentityService service;
     public IdentityController(IdentityService service) { this.service=service; }
+    public record GenderRequest(@NotNull kr.siheung.taximate.identity.api.Gender gender) {}
+    @PutMapping("/api/me/gender") public Object gender(@CurrentMember AuthenticatedMember me,@Valid @RequestBody GenderRequest r) { return service.setGender(me.memberId(),r.gender()); }
     public record LoginRequest(@NotBlank @Size(min=2,max=20) String nickname) {}
     public record ConsentRequest(@NotBlank @Size(max=100) String policyVersion) {}
     public record ServicesConsentRequest(@NotBlank @Size(max=32) String policyVersion, @NotNull java.util.List<String> items) {}

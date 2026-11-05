@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { RoomStatus } from '../api/contract';
-import { roomStatusInfo } from '../lib/format';
+import type { RoomStatus } from '../../api/contract';
+import { roomStatusInfo } from '../../lib/format';
 import { CloseIcon } from './icons';
 import { SHEET_MAX_HEIGHT } from '../screens/layout';
 
@@ -75,9 +75,9 @@ export function RoomStatusChip({ status }: { status: RoomStatus }) {
   return <span className={`chip ${tone}`}>{roomStatusInfo[status].label}</span>;
 }
 
-export function Toggle({ checked, onChange, label }: { checked: boolean; onChange(v: boolean): void; label: string }) {
+export function Toggle({ checked, onChange, label, disabled = false }: { checked: boolean; onChange(v: boolean): void; label: string; disabled?: boolean }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="flex w-full items-center justify-between py-2 text-[15px] font-medium">
+    <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)} className="flex w-full items-center justify-between py-2 text-[15px] font-medium disabled:opacity-50">
       <span>{label}</span>
       <span className={`relative block h-8 w-[52px] shrink-0 rounded-full transition-colors ${checked ? 'bg-ink' : 'bg-line'}`}>
         <span className={`absolute left-0 top-1 h-6 w-6 rounded-full shadow transition-transform ${checked ? 'translate-x-[24px] bg-sun' : 'translate-x-1 bg-white'}`} />

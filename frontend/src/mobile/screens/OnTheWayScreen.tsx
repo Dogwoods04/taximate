@@ -1,17 +1,21 @@
+import GenderChip from '../components/GenderChip';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { api, isMock } from '../api';
-import type { LatLng, MeetingPoint, Message, PlaceRef, RoomDetail, RoomEvent, TripIntent } from '../api/contract';
-import { useAction, useApp, useErrorHandler } from '../lib/app';
-import { isApiError } from '../lib/errors';
-import { farePolicyLabel, formatClock, formatCountdown, formatTime, formatWon, meetingKindLabel, minutesOf, perPersonFare, roomStatusInfo, toLocalInput, toOffsetIso, destinationTitle, originTitle, riders } from '../lib/format';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { api, isMock } from '../../api';
+import type { LatLng, MeetingPoint, Message, PlaceRef, RoomDetail, RoomEvent, TripIntent } from '../../api/contract';
+import { useAction, useApp, useErrorHandler } from '../../lib/app';
+import { isApiError } from '../../lib/errors';
+import { farePolicyLabel, formatClock, formatCountdown, formatTime, formatWon, meetingKindLabel, minutesOf, perPersonFare, roomStatusInfo, toLocalInput, toOffsetIso, destinationTitle, originTitle, riders } from '../../lib/format';
 import { useMap } from '../components/map/MapLayout';
 import ReportDialog, { type ReportTarget } from '../components/ReportDialog';
 import { ArrowIcon, ChatIcon, CheckIcon, ChevronLeftIcon, ClockIcon, CloseIcon, PersonIcon, PinIcon, SearchIcon, SendIcon } from '../components/icons';
 import { Avatar, FARE_DISCLAIMER, Notice, PageBars, RoomStatusChip, Sheet, Spinner, Toggle, useSlideIn } from '../components/ui';
-import { otwInsets, otwSheetHeight } from './layout';
+import { maxSheetHeight, otwInsets, otwSheetHeight } from './layout';
+import { useKeyboardOpen } from '../useKeyboard';
+import { endedReason, isEnded, knownEnded, rememberEnded } from '../endedRooms';
 import { SheetHandle, useSheetDrag } from './useSheetDrag';
 import { roomLayers, roomPoints } from './SelectSheet';
+import ChatPlaceCard from '../components/ChatPlaceCard';
 
 function useNow(ms = 1000) {
   const [now, setNow] = useState(Date.now());
@@ -21,12 +25,21 @@ function useNow(ms = 1000) {
 
 export default function OnTheWayScreen() {
   const { id = '' } = useParams();
+  const location = useLocation();
+  // Moderators (운영자 → 방 보기) may still inspect an ended room; everyone else never re-enters one.
+  const moderation = !!(location.state as { moderation?: boolean } | null)?.moderation;
+  // Back/Forward onto a room already known to be over: straight home, replacing this history entry.
+  if (!moderation && knownEnded(id)) return <Navigate to="/" replace />;
+  return <OnTheWay id={id} moderation={moderation} />;
+}
+
+function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
   const navigate = useNavigate();
   const map = useMap();
   const { member, toast } = useApp();
   const onError = useErrorHandler();
   const { busy, run } = useAction();
-  const { shown, close } = useSlideIn(() => navigate('/'), 420);
+  const { shown, close } = useSlideIn(() => navigate('/', { replace: true }), 420);
   const [room, setRoom] = useState<RoomDetail | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [myTrip, setMyTrip] = useState<TripIntent | null>(null);
@@ -43,9 +56,18 @@ export default function OnTheWayScreen() {
 
   const isMember = !!room && room.myRole !== 'NONE';
   const sheet = useSheetDrag(map.size, otwSheetHeight(map.size), 'otw');
-  const sheetH = sheet.settledHeight;
-  useEffect(() => { map.setCover(sheet.progress, sheet.dragging); }, [map, sheet.progress, sheet.dragging]);
-  useEffect(() => { map.setAttributionInset(sheet.style.height, sheet.dragging); }, [map, sheet.style.height, sheet.dragging]);
+  // Leave room for a place card and the composer even on the collapsed chat page.
+  const chatMinHeight = Math.min(maxSheetHeight(map.size), 600);
+  const sheetH = page === 1 && isMember ? Math.max(sheet.settledHeight, chatMinHeight) : sheet.settledHeight;
+  // Typing in the chat with the on-screen keyboard open (Android & co.; iOS pans the page itself):
+  // the sheet covers the whole map with its top just under the back button and drops its header/footer,
+  // so the messages and the input fit above the keyboard. Restored when the keyboard closes.
+  const keyboard = useKeyboardOpen();
+  const chatMode = keyboard && page === 1 && isMember;
+  const sheetStyle = chatMode ? { ...sheet.style, height: maxSheetHeight(map.size) }
+    : page === 1 && isMember ? { ...sheet.style, height: Math.max(sheet.style.height, chatMinHeight) } : sheet.style;
+  useEffect(() => { map.setCover(chatMode ? 1 : sheet.progress, sheet.dragging); }, [map, chatMode, sheet.progress, sheet.dragging]);
+  useEffect(() => { map.setAttributionInset(sheetStyle.height, sheet.dragging); }, [map, sheetStyle.height, sheet.dragging]);
   useEffect(() => () => map.setCover(0), [map]);
 
   const loadRoom = useCallback(async () => {
@@ -56,13 +78,25 @@ export default function OnTheWayScreen() {
     if (!incoming.length) return;
     setMessages(list => {
       const seen = new Set(list.map(m => m.id));
-      const next = [...list, ...incoming.filter(m => !seen.has(m.id))];
+      const next = [...list, ...incoming.filter(m => !seen.has(m.id))]
+        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
       lastId.current = next[next.length - 1]?.id;
       return next;
     });
   }, []);
   const fetchNewMessages = useCallback(async () => {
-    try { appendMessages(await api.messages.list(id, lastId.current)); } catch { /* chat refresh is best-effort */ }
+    try {
+      let cursor = lastId.current;
+      const incoming: Message[] = [];
+      for (;;) {
+        const batch = await api.messages.list(id, cursor, 100);
+        incoming.push(...batch);
+        const next = batch[batch.length - 1]?.id;
+        if (batch.length < 100 || next === cursor) break;
+        cursor = next;
+      }
+      appendMessages(incoming);
+    } catch { /* chat refresh is best-effort */ }
   }, [id, appendMessages]);
 
   useEffect(() => { setMessages([]); lastId.current = undefined; setRoom(null); void loadRoom(); }, [loadRoom]);
@@ -87,8 +121,19 @@ export default function OnTheWayScreen() {
   // Removed by the host: I was a member, a room update arrives, and now I'm not. Tell me and go home.
   const wasMember = useRef(false);
   const selfExit = useRef(false);
+  const leaving = useRef(false);
   useEffect(() => {
     if (!room) return;
+    // The room's session is over (closed / cancelled / expired): say why and go home. Not for CONFIRMED.
+    if (isEnded(room.status) && !moderation) {
+      rememberEnded(room.id, room.status);
+      if (leaving.current) return;
+      leaving.current = true;
+      if (!selfExit.current) toast(endedReason[room.status] ?? '끝난 방이에요.', 'info');
+      selfExit.current = true;
+      close();
+      return;
+    }
     if (isMember) { wasMember.current = true; return; }
     if (wasMember.current && !selfExit.current) {
       wasMember.current = false;
@@ -102,17 +147,18 @@ export default function OnTheWayScreen() {
     if (!room) return;
     if (room.myTripId) { api.trips.get(room.myTripId).then(setMyTrip).catch(() => setMyTrip(null)); return; }
     if (!isMember) api.trips.active().then(setJoinTrip).catch(() => setJoinTrip(null));
-  }, [room?.myTripId, isMember]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [room?.myTripId, room?.termsVersion, isMember]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Map: the room's route, fitted above the sheet.
-  const mapKey = room ? JSON.stringify([room.routePreview.length, room.meetingPoint?.location, room.approxOrigin, myTrip?.route?.durationSeconds, sheetH]) : '';
+  const mapKey = room ? JSON.stringify([room.routePreview, room.meetingPoint?.location, room.approxOrigin, room.approxDestination, room.termsVersion, myTrip?.route?.durationSeconds, sheetH]) : '';
   useEffect(() => {
-    if (!room || sheet.dragging || sheet.expanded) return;
-    const duration = myTrip?.route ? minutesOf(myTrip.route.durationSeconds) : undefined;
+    if (!room || sheet.dragging || sheet.expanded || chatMode) return;
+    // A member's own trip is unchanged when the host changes the shared destination.
+    const duration = room.myRole === 'HOST' && myTrip?.route ? minutesOf(myTrip.route.durationSeconds) : undefined;
     map.setLayers(roomLayers(room, room.routePreview, [], duration));
     map.fit(roomPoints(room, room.routePreview), otwInsets(map.size, sheetH));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapKey, sheet.dragging, sheet.expanded]);
+  }, [mapKey, sheet.dragging, sheet.expanded, chatMode]);
 
   const goTo = (i: number) => {
     const el = pager.current;
@@ -148,7 +194,8 @@ export default function OnTheWayScreen() {
   };
   const cancelRoom = async () => {
     if (!window.confirm('방을 취소할까요? 참여자 모두에게 취소가 알려져요.')) return;
-    if (await act(() => api.rooms.cancel(room.id), '방을 취소했어요.')) close();
+    selfExit.current = true;
+    if (!(await act(() => api.rooms.cancel(room.id), '방을 취소했어요.'))) selfExit.current = false;
   };
   const join = async () => {
     if (!joinTrip) return;
@@ -165,7 +212,7 @@ export default function OnTheWayScreen() {
         <ChevronLeftIcon size={22} />
       </button>
 
-      <section aria-label="이동 중" style={sheet.style}
+      <section aria-label="이동 중" style={sheetStyle}
         className={`ease-sheet pointer-events-auto absolute inset-x-0 bottom-0 flex flex-col rounded-t-sheet bg-white shadow-sheet transition-[height,transform] duration-500 ${shown ? 'translate-y-0' : 'translate-y-full'}`}>
         {/* timer pill: time left until departure */}
         <div className="absolute left-1/2 top-0 flex h-12 -translate-x-1/2 -translate-y-1/2 items-center gap-2.5 rounded-full bg-ink px-6 text-white shadow-float [--clock-hand:#151515]" role="timer" aria-label="출발까지 남은 시간">
@@ -173,8 +220,8 @@ export default function OnTheWayScreen() {
           <span className="text-[20px] font-semibold tabular-nums tracking-tight">{timerText}</span>
         </div>
 
-        <div className="shrink-0 pt-6"><SheetHandle controls={sheet} /></div>
-        <div className="shrink-0 px-6 pt-1">
+        <div className={`shrink-0 pt-6 ${chatMode ? 'hidden' : ''}`}><SheetHandle controls={sheet} /></div>
+        <div className={`shrink-0 px-6 pt-1 ${chatMode ? 'hidden' : ''}`}>
           <div className="flex items-center justify-between">
             <span className="text-[15px] text-mute">목적지</span>
             <RoomStatusChip status={room.status} />
@@ -199,22 +246,22 @@ export default function OnTheWayScreen() {
               <RideInfo room={room} myId={member?.id} busy={busy} onAct={act} onReload={loadRoom} onEdit={() => setEditing(true)} onReport={setReport}
                 joinTrip={joinTrip} onJoin={join} />
             </div>
-            <div className="flex h-full w-full shrink-0 snap-start flex-col px-6 pb-2 pt-3">
+            <div className={`flex h-full w-full shrink-0 snap-start flex-col px-6 pb-2 ${chatMode ? 'pt-8' : 'pt-3'}`}>
               {isMember
-                ? <Chat roomId={room.id} readOnly={room.readOnly} messages={messages} myId={member?.id} onSent={m => appendMessages([m])} onReport={setReport} active={page === 1} />
+                ? <Chat key={room.id} room={room} onSaved={setRoom} roomId={room.id} readOnly={room.readOnly} messages={messages} myId={member?.id} onSent={m => appendMessages([m])} onReport={setReport} active={page === 1} />
                 : <div className="grid flex-1 place-items-center text-center text-sm text-mute">참여한 사람만 채팅을 볼 수 있어요.</div>}
             </div>
           </div>
         </div>
 
-        <div className="shrink-0 px-6 pb-[max(20px,env(safe-area-inset-bottom))] pt-3">
+        <div className={`shrink-0 px-6 pb-[max(20px,env(safe-area-inset-bottom))] pt-3 ${chatMode ? 'hidden' : ''}`}>
           <PageBars count={2} active={page} onSelect={goTo} />
           {isMember && !room.readOnly && (
             <button type="button" className="btn-fog mt-4 w-full" disabled={busy} onClick={isHost ? cancelRoom : leave}>{isHost ? '방 취소' : '방 나가기'}</button>
           )}
           {isHost && room.status === 'CONFIRMED' && (
             <button type="button" className="btn-ink mt-4 w-full" disabled={busy}
-              onClick={() => { if (window.confirm('이동을 마치고 방을 닫을까요?')) void act(() => api.rooms.close(room.id), '방을 닫았어요. 함께해 주셔서 고마워요!'); }}>
+              onClick={() => { if (window.confirm('이동을 마치고 방을 닫을까요?')) { selfExit.current = true; void act(() => api.rooms.close(room.id), '방을 닫았어요. 함께해 주셔서 고마워요!').then(r => { if (!r) selfExit.current = false; }); } }}>
               이동 완료 · 방 닫기
             </button>
           )}
@@ -258,12 +305,13 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
     if (window.confirm(`${nickname}님을 방에서 내보낼까요?`)) void onAct(() => api.rooms.remove(room.id, memberId));
   };
   const addDemo = async () => {
-    await run(async () => { const mock = await import('../api/mockClient'); await mock.addDemoParticipant(room.id); });
+    await run(async () => { const mock = await import('../../api/mockClient'); await mock.addDemoParticipant(room.id); });
     onReload();
   };
 
   return (
     <div className="space-y-6">
+      <GenderChip enabled={room.sameGenderOnly} />
       {/* fare + seats (replaces the mockup's car block) */}
       <div className="flex items-stretch gap-4">
         <div className="min-w-0 flex-1">
@@ -381,7 +429,8 @@ function SeatMap({ filled, capacity }: { filled: number; capacity: number }) {
 
 // ---------------------------------------------------------------- page 2: chat
 
-function Chat({ roomId, readOnly, messages, myId, onSent, onReport, active }: {
+function Chat({ room, onSaved, roomId, readOnly, messages, myId, onSent, onReport, active }: {
+  room: RoomDetail; onSaved(room: RoomDetail): void;
   roomId: string; readOnly: boolean; messages: Message[]; myId?: string; active: boolean;
   onSent(m: Message): void; onReport(t: ReportTarget): void;
 }) {
@@ -390,7 +439,16 @@ function Chat({ roomId, readOnly, messages, myId, onSent, onReport, active }: {
   // Reused for retries of the same text, so a resend after a failure cannot duplicate the message.
   const clientId = useRef<string>(crypto.randomUUID());
   const list = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
   useEffect(() => { const el = list.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: active ? 'smooth' : 'auto' }); }, [messages.length, active]);
+  // The list shrinks/grows with the keyboard and the sheet; stay on the newest message if we were there.
+  useEffect(() => {
+    const el = list.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => { if (pinned.current) el.scrollTop = el.scrollHeight; });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const send = async (e: FormEvent) => {
     e.preventDefault();
@@ -402,8 +460,10 @@ function Chat({ roomId, readOnly, messages, myId, onSent, onReport, active }: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div ref={list} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto py-2">
-        {messages.length === 0 && <p className="pt-10 text-center text-sm text-mute">아직 메시지가 없어요. 먼저 인사해 보세요.</p>}
+      <div ref={list} onScroll={e => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48; }}
+        className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain py-2">
+        <p id="chat-privacy" className="px-4 text-center text-[11.5px] leading-relaxed text-mute">전화번호 등 개인정보는 채팅에 공유하지 마세요.</p>
+        {messages.length === 0 && <p className="pt-8 text-center text-sm text-mute">아직 메시지가 없어요. 먼저 인사해 보세요.</p>}
         {messages.map(m => {
           if (m.type === 'SYSTEM') return <div key={m.id} className="px-6 text-center text-xs leading-relaxed text-mute">{m.body}</div>;
           const mine = m.senderId === myId;
@@ -421,11 +481,12 @@ function Chat({ roomId, readOnly, messages, myId, onSent, onReport, active }: {
           );
         })}
       </div>
+      <ChatPlaceCard room={room} messages={messages} myId={myId} onSaved={onSaved} onSent={onSent} />
       {readOnly ? (
         <p className="shrink-0 rounded-2xl bg-fog-soft px-4 py-3 text-center text-[13px] text-mute">확정·종료된 방은 채팅이 잠겨요.</p>
       ) : (
         <form onSubmit={send} className="flex shrink-0 items-center gap-2 pt-2">
-          <input value={text} maxLength={500} onChange={e => { setText(e.target.value); }} placeholder="메시지 (전화번호 등 개인정보는 공유하지 마세요)"
+          <input value={text} maxLength={500} onChange={e => { setText(e.target.value); }} placeholder="메시지 보내기" aria-describedby="chat-privacy"
             className="h-12 min-w-0 flex-1 rounded-full bg-fog px-5 text-[15px] outline-none placeholder:text-mute focus:ring-2 focus:ring-ink" />
           <button type="submit" aria-label="보내기" disabled={busy || !text.trim()} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-ink text-sun transition active:scale-95 disabled:bg-line disabled:text-white">
             <SendIcon size={20} />
@@ -459,6 +520,7 @@ function PlanEditor({ room, start, onClose, onSaved }: { room: RoomDetail; start
   return (
     <Sheet title="약속 바꾸기" onClose={onClose} tall>
       <div className="space-y-6">
+      <GenderChip enabled={room.sameGenderOnly} />
         <Group title="만날 장소">
           <div className="space-y-2">
             <PointOption selected={same(point, current)} title={current.name} sub={room.meetingPoint ? '지금 약속 장소' : '방 출발지'} onClick={() => setPoint(current)} />

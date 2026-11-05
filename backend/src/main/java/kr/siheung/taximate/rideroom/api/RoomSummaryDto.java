@@ -35,5 +35,6 @@ public record RoomSummaryDto(
         MeetingPointDto meetingPoint,
         Integer estimatedTaxiFareWon,
         String originName,
-        String destinationName) {
+        String destinationName,
+        boolean sameGenderOnly) {
 }

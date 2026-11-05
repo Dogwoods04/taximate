@@ -20,23 +20,28 @@ public class CandidateScorer {
         var ho=host.origin().location(); var hd=host.destination().location();
         if (GeoUtils.distanceMeters(mo,md) < 1 || GeoUtils.distanceMeters(ho,hd) < 1) return Optional.empty();
         double direction=GeoUtils.bearingCosine(GeoUtils.bearingDegrees(mo,md),GeoUtils.bearingDegrees(ho,hd));
-        if (direction < props.minDirectionCosine()) return Optional.empty();
         double overlap=Math.min(overlap(mine.route().path(),host.route().path()),overlap(host.route().path(),mine.route().path()));
         // Same trip: both ends within the priority radius (200 m). The car route is traffic-aware, so the same
-        // two points can get a different road at a different time; don't reject the room for that.
+        // two points can get a different road at a different time; score it as a full overlap.
         boolean sameEnds = originDistance <= props.priorityRadiusMeters() && destinationDistance <= props.priorityRadiusMeters();
         if (sameEnds) overlap = Math.max(overlap, 1.0);
-        if (overlap < props.minOverlapRatio()) return Optional.empty();
+        double detour=(GeoUtils.distanceMeters(ho,mo)+GeoUtils.distanceMeters(md,hd))*1.3/8.3/60;
+        double detourLimit=Math.min(mine.maxDetourMinutes(),host.maxDetourMinutes());
+        // Both ends within the max radius (500 m): the trips share origin and destination areas, so the room is a
+        // candidate even when the router picked a different road (a building a few hundred meters away often gets
+        // a completely different car route). Direction / overlap / detour only lower the score here.
+        boolean withinRadius = originDistance <= props.maxRadiusMeters() && destinationDistance <= props.maxRadiusMeters();
+        if (!withinRadius && (direction < props.minDirectionCosine() || overlap < props.minOverlapRatio() || detour > detourLimit))
+            return Optional.empty();
         double departureDiff=Duration.between(mine.desiredDepartureAt(), departure).toMillis()/60000.0;
         double waitLimit=Math.min(props.maxDepartureDiffMinutes(),mine.maxWaitMinutes()+host.maxWaitMinutes());
         if (Math.abs(departureDiff) > waitLimit) return Optional.empty();
-        double detour=(GeoUtils.distanceMeters(ho,mo)+GeoUtils.distanceMeters(md,hd))*1.3/8.3/60;
-        double detourLimit=Math.min(mine.maxDetourMinutes(),host.maxDetourMinutes());
-        if (detour > detourLimit) return Optional.empty();
         var w=props.weights();
         double value=(w.originDistance()*closeness(originDistance,props.maxRadiusMeters())
                 +w.destinationDistance()*closeness(destinationDistance,props.maxRadiusMeters())+w.overlap()*overlap
                 +w.departureTime()*closeness(Math.abs(departureDiff),waitLimit)+w.detour()*closeness(detour,detourLimit))/w.total();
+        // Opposite direction (only reachable inside the radius) scales the score down: cosine 1 → ×1, ≤0 → ×0.
+        value*=Math.max(0,Math.min(1,direction));
         return Optional.of(new Score(overlap,departureDiff,detour,(int)Math.round(Math.max(0,Math.min(1,value))*100)));
     }
     private double overlap(List<LatLng> from, List<LatLng> to) {

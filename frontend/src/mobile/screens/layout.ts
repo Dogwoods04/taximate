@@ -15,7 +15,8 @@ export function sheetTopLimit() {
 export const maxSheetHeight = ({ h }: Size) => Math.max(0, h - sheetTopLimit());
 
 /** On-the-way sheet height; the map shows above it. */
-export const otwSheetHeight = (size: Size) => Math.max(0, Math.round(Math.min(maxSheetHeight(size), size.h - 250, Math.max(450, size.h * 0.56))));
+// Short phones (≤700px tall) keep a smaller map strip so the sheet's content and buttons still fit.
+export const otwSheetHeight = (size: Size) => Math.max(0, Math.round(Math.min(maxSheetHeight(size), size.h - (size.h <= 700 ? 190 : 250), Math.max(450, size.h * 0.56))));
 /** Select sheet heights per mode. */
 export const selectSheetHeight = (size: Size, mode: 'list' | 'search' | 'detail') =>
   mode !== 'list' ? maxSheetHeight(size) : Math.max(0, Math.round(Math.min(maxSheetHeight(size), size.h - 170, Math.max(540, size.h * 0.64))));

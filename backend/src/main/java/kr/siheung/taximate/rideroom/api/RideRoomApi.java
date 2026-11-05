@@ -10,9 +10,9 @@ public interface RideRoomApi {
 
     /**
      * Rooms whose host sourceTripId is in {@code hostTripIds}, status in JOINABLE,
-     * not hidden by a moderator, seatsLeft > 0.
+     * not hidden by a moderator, seatsLeft > 0, requester eligible for the private gender restriction.
      */
-    List<RoomMatchView> findJoinableRoomsBySourceTripIds(Collection<UUID> hostTripIds);
+    List<RoomMatchView> findJoinableRoomsBySourceTripIds(Collection<UUID> hostTripIds, UUID requesterMemberId);
 
     /**
      * Of the given trip ids, those currently attached to a room in RoomStatus.ACTIVE

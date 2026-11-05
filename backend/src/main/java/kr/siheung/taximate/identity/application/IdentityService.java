@@ -24,7 +24,7 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
     }
     public record ConsentDto(UUID id, String policyVersion, OffsetDateTime agreedAt) {}
     public record ServicesConsentDto(UUID id, String policyVersion, List<String> items, OffsetDateTime agreedAt) {}
-    public record MemberDto(UUID id, String nickname, MemberRole role, MemberStatus status, ConsentDto locationConsent, ServicesConsentDto servicesConsent) {}
+    public record MemberDto(UUID id, String nickname, MemberRole role, MemberStatus status, ConsentDto locationConsent, ServicesConsentDto servicesConsent, Gender gender, GenderSource genderSource) {}
     public record LoginDto(String token, MemberDto member) {}
     private Member member(UUID id) {
         Member m=em.find(Member.class,id);
@@ -44,7 +44,14 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
     }
     public MemberDto me(UUID id) {
         Member m=member(id); LocationConsent c=consent(id);
-        return new MemberDto(m.id,m.nickname,m.role,m.status,c==null?null:new ConsentDto(c.id,c.policyVersion,c.agreedAt),toDto(servicesConsent(id)));
+        return new MemberDto(m.id,m.nickname,m.role,m.status,c==null?null:new ConsentDto(c.id,c.policyVersion,c.agreedAt),toDto(servicesConsent(id)),m.gender,m.genderSource);
+    }
+    @Override public Gender getGender(UUID id) { return member(id).gender; }
+    public MemberDto setGender(UUID id,Gender gender) {
+        Member m=em.find(Member.class,id,LockModeType.PESSIMISTIC_WRITE); requireActive(id);
+        if(m.genderSource==GenderSource.KAKAO) throw new ApiException(ErrorCode.GENDER_SOURCE_LOCKED,"Kakao gender cannot be changed manually");
+        m.gender=Objects.requireNonNull(gender); m.genderSource=GenderSource.SELF; m.genderUpdatedAt=OffsetDateTime.now(clock);
+        return me(id);
     }
     public LoginDto login(String nickname) {
         if(!props.devLoginEnabled()) throw ApiException.forbidden("Development login disabled");

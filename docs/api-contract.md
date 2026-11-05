@@ -63,6 +63,7 @@ READ_ONLY = {CONFIRMED, CLOSED, CANCELLED, EXPIRED}: no join, no messages (409 `
 | Method | Path | Body | Response |
 |---|---|---|---|
 | POST | `/api/auth/dev-login` | `{ nickname: string(2–20) }` | `{ token: string, member: Member }` — creates member if new. Enabled only when `taximate.auth.dev-login-enabled`. Nicknames in `taximate.auth.admin-nicknames` get ADMIN. |
+| PUT | `/api/me/gender` | `{ gender: MALE | FEMALE | UNDISCLOSED }` | Own `Member`; sets SELF; 409 `GENDER_SOURCE_LOCKED` for KAKAO. |
 | GET | `/api/me` | – | `Member` |
 | POST | `/api/me/consents/location` | `{ policyVersion: string }` | `LocationConsent` |
 | DELETE | `/api/me/consents/location` | – | 204. Publishes `LocationConsentWithdrawnEvent` → active trips cancelled. |
@@ -70,11 +71,14 @@ READ_ONLY = {CONFIRMED, CLOSED, CANCELLED, EXPIRED}: no join, no messages (409 `
 | DELETE | `/api/me/consents/services` | – | 204. Marks the current record withdrawn. The app then asks again before the map screens. |
 
 ```ts
-Member          { id, nickname, role: MemberRole, status: MemberStatus, locationConsent: LocationConsent | null, servicesConsent: ServicesConsent | null }
+Member          { gender: 'MALE' | 'FEMALE' | 'UNDISCLOSED' | null, genderSource: 'SELF' | 'KAKAO' | null, id, nickname, role: MemberRole, status: MemberStatus, locationConsent: LocationConsent | null, servicesConsent: ServicesConsent | null }
 LocationConsent { id, policyVersion, agreedAt }   // only current (non-withdrawn) consent is returned
 ServiceItem     = 'KAKAO' | 'TMAP'            // external services: Kakao Maps/Local/Mobility, TMAP pedestrian route
 ServicesConsent { id, policyVersion, items: ServiceItem[], agreedAt }   // only current (non-withdrawn) record
 ```
+
+### Private gender and same-gender eligibility
+Own Member responses (/me and dev-login) include gender: MALE | FEMALE | UNDISCLOSED | null and genderSource: SELF | KAKAO | null. PUT /api/me/gender {gender} returns own Member, sets SELF and gender_updated_at; KAKAO source rejects SELF updates with 409 GENDER_SOURCE_LOCKED. Gender is never included in other public DTOs. Internal IdentityApi.getGender is for eligibility only. Future Kakao login may fill/override SELF.
 
 ## places / external-mobility (owner: mobility-matching)
 
@@ -130,10 +134,20 @@ Algorithm:
 1. **Spatial hard filter (PostGIS `geography`, meters, GiST):** other members' trips with status ∈ SEARCHABLE, not expired, consent present,
    `ST_DWithin(origin, mine, 500)` AND `ST_DWithin(destination, mine, 500)`.
 2. **Room lookup:** `RideRoomApi.findJoinableRoomsBySourceTripIds(hostTrips)`; drop rooms with `seatsLeft < my passengerCount`.
-3. **Route hard filters** (config `taximate.matching.*`): direction cosine ≥ 0.7, overlap ratio ≥ 0.5 (fraction of my resampled path within 150m of host path; when BOTH ends are within `priority-radius-meters` (200m) the overlap counts as 1.0 — the car route is traffic-aware, so the same two points can get a different road at a different time),
-   |departure diff| ≤ min(30, my maxWait + host maxWait), estimated detour ≤ both parties' maxDetourMinutes.
+3. **Route checks.** If my origin AND my destination are each within `max-radius-meters` (500 m) of the host trip's origin/destination (always the case after step 1), the room is a candidate.
+   The only conditions are: joinable, enough seats, not hidden, and |departure diff| <= min(30, my maxWait + host maxWait).
+   Direction cosine, route overlap and estimated detour are NOT rejections in this case. Nearby buildings often get a completely different traffic-aware car route, so these values only feed the score and reasons.
+   - Overlap: fraction of my resampled path within 150 m of the host path, the lesser of the two directions. It counts as 1.0 when both ends are <= 200 m.
+   - Detour: closeness against min(maxDetourMinutes).
+   - Direction: the final score is multiplied by clamp(cosine, 0, 1).
+   Outside the radius, the old hard filters apply (cosine >= 0.7, overlap >= 0.5, detour <= both maxDetourMinutes).
+   Reasons: "출발지 Xm", "목적지 Xm", "경로 N% 겹침", "추가 이동 약 N분".
+   `similarSearchingCount` uses the same rule.
+
 4. **Score** 0–100 = weighted (origin distance 0.25, destination 0.15, overlap 0.30, departure 0.20, detour 0.10).
 5. **Order:** tier NEAR (origin ≤200m) first, then EXTENDED; within tier by score desc. Max 20.
+Same-gender eligibility is applied by RideRoomApi.findJoinableRoomsBySourceTripIds(hostTrips, requesterMemberId) before scoring. All active-room trips are excluded from the solo count independently of room visibility.
+
 6. `similarSearchingCount` = solo SEARCHING trips passing steps 1+3 that are not in any active room (`RideRoomApi.findTripIdsInActiveRooms`).
 
 ```ts
@@ -176,16 +190,18 @@ NEAR = every participant ≤200m straight-line, EXTENDED = ≤500m. Walking rout
 | POST | `/api/rooms/{id}/leave` | – | `RoomDetail`. MEMBER only, not after CONFIRMED. Host must cancel instead. |
 | POST | `/api/rooms/{id}/participants/{memberId}/remove` | – | `RoomDetail` (host only, before CONFIRMED) |
 | PUT | `/api/rooms/{id}/plan` | `UpdatePlanRequest` | `RoomDetail` (host only, JOINABLE only). termsVersion++ and confirmations cleared. SYSTEM message posted. |
+| PUT | `/api/rooms/{id}/destination` | `UpdateDestinationRequest` | `RoomDetail` (host only, JOINABLE, not hidden). Recalculates host route/fare atomically; termsVersion++ and confirmations cleared. 503 `ROUTE_UNAVAILABLE` rolls back all changes. |
 | POST | `/api/rooms/{id}/confirm` | `{ termsVersion }` | `RoomDetail`. 409 `TERMS_VERSION_MISMATCH` if stale, 409 `MEETING_POINT_REQUIRED`. When everyone confirmed → CONFIRMED, `TripApi.markMatched`. |
 | POST | `/api/rooms/{id}/close` | – | `RoomDetail` (host, from CONFIRMED) |
 | POST | `/api/rooms/{id}/cancel` | – | `RoomDetail` (host, from OPEN/COORDINATING) |
 
 ```ts
-CreateRoomRequest { sourceTripId, capacity: number /*2–4 persons incl. host*/, terms: RoomTerms, departureAt?: string /*default trip.desiredDepartureAt*/ }
+CreateRoomRequest { sameGenderOnly?: boolean /* default false */, sourceTripId, capacity: number /*2–4 persons incl. host*/, terms: RoomTerms, departureAt?: string /*default trip.desiredDepartureAt*/ }
 UpdatePlanRequest { meetingPoint: MeetingPoint, departureAt: string, terms: RoomTerms }
+UpdateDestinationRequest { destination: PlaceRef }
 RoomTerms   { farePolicy: FarePolicy, luggageAllowed: boolean, note?: string /*≤200*/ }
 RoomSummary {
-  id, status: RoomStatus, hostNickname,
+  id, status: RoomStatus, hostNickname, sameGenderOnly: boolean,
   approxOrigin: LatLng, approxDestination: LatLng, originLabel: string, destinationLabel: string,
   departureAt, departureWindowEnd,        // window end = departureAt + host maxWaitMinutes
   capacity, seatsLeft, participantCount,
@@ -203,6 +219,17 @@ RoomDetail extends RoomSummary {
 }
 Participant { memberId, nickname, role: 'HOST' | 'MEMBER', status: 'ACTIVE' | 'LEFT' | 'REMOVED', passengerCount, confirmed: boolean, joinedAt }
 ```
+
+### Same-gender rooms
+Creation stores the host gender privately as restricted_gender; only MALE/FEMALE can create (409 GENDER_REQUIRED otherwise). Open lists and matching candidates exclude ineligible callers before limits; non-member detail returns 404 NOT_FOUND. Join returns 403 GENDER_RESTRICTED on mismatch; active-member retry remains idempotent. Existing active participants retain access after gender changes; the creation snapshot never changes. Only sameGenderOnly is public.
+
+### Room destination changes
+`PUT /api/rooms/{id}/destination` accepts `UpdateDestinationRequest` and returns `RoomDetail`.
+Only the host of a non-hidden JOINABLE room may call it. The room distributed lock and row lock wrap one transaction.
+`TripApi.updateDestination(tripId, memberId, destination)` locks the host's source trip, updates its destination and calculates one new car route snapshot including taxi fare; members' trips are unchanged.
+Routing failure returns 503 `ROUTE_UNAVAILABLE` and rolls back all changes (no previous-route fallback).
+Success increments `termsVersion`, clears every confirmation, posts `방장이 목적지를 ○○(으)로 바꿨어요`, and emits `ROOM_UPDATED`.
+Clients reload the room and their trip to refresh destination, route and fare.
 
 ## conversation (owner: backend-domain)
 

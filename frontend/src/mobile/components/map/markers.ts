@@ -1,4 +1,4 @@
-import type { LatLng } from '../../api/contract';
+import type { LatLng } from '../../../api/contract';
 
 export type MarkerKind = 'me' | 'origin' | 'destination' | 'meeting' | 'room' | 'pickup';
 export interface MapMarker { position: LatLng; kind: MarkerKind; label?: string }

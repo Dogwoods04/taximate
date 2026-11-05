@@ -2,6 +2,8 @@ export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
+      // Short phones (e.g. 360×640): tighter vertical spacing.
+      screens: { short: { raw: '(max-height: 700px)' } },
       colors: {
         ink: { DEFAULT: '#151515', soft: '#2A2A2A' },
         sun: { DEFAULT: '#FFD966', deep: '#F7C548', pale: '#FFF4CC' },
