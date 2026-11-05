@@ -27,7 +27,17 @@ public class RoomSocketHandler extends TextWebSocketHandler {
                 rooms.requireActiveParticipant(event.roomId(),(UUID)s.getAttributes().get("memberId"));
                 if(s.isOpen()) s.sendMessage(new TextMessage(mapper.writeValueAsString(Map.of("type",event.type(),"payload",event.payload()))));
                 else sessions.remove(s);
-            } catch(ApiException | IOException | IllegalStateException ex) {
+            } catch(ApiException ex) {
+                // No longer an active participant (removed by the host, left, ...). A removal publishes the system
+                // message first and ROOM_UPDATED after it, so skip anything else (no chat content for them) and keep
+                // the socket until the ROOM_UPDATED: deliver that one so their screen learns about it, then close.
+                if(!"ROOM_UPDATED".equals(event.type())) continue;
+                sessions.remove(s);
+                try {
+                    if(s.isOpen()) s.sendMessage(new TextMessage(mapper.writeValueAsString(Map.of("type",event.type(),"payload",event.payload()))));
+                } catch(IOException | IllegalStateException ignored) {}
+                try { s.close(CloseStatus.POLICY_VIOLATION); } catch(IOException ignored) {}
+            } catch(IOException | IllegalStateException ex) {
                 sessions.remove(s); try { s.close(CloseStatus.POLICY_VIOLATION); } catch(IOException ignored) {}
             }
         }

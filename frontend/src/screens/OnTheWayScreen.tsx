@@ -84,6 +84,19 @@ export default function OnTheWayScreen() {
     return () => unsubscribe();
   }, [id, isMember, member?.id, fetchNewMessages, appendMessages, loadRoom, onError]);
 
+  // Removed by the host: I was a member, a room update arrives, and now I'm not. Tell me and go home.
+  const wasMember = useRef(false);
+  const selfExit = useRef(false);
+  useEffect(() => {
+    if (!room) return;
+    if (isMember) { wasMember.current = true; return; }
+    if (wasMember.current && !selfExit.current) {
+      wasMember.current = false;
+      toast('방장이 이 방에서 내보냈어요.', 'info');
+      close();
+    }
+  }, [room, isMember]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // My own trip gives the route duration for the map bubble; non-members need their active trip to join.
   useEffect(() => {
     if (!room) return;
@@ -130,6 +143,7 @@ export default function OnTheWayScreen() {
   };
   const leave = async () => {
     if (!window.confirm('이 방에서 나갈까요?')) return;
+    selfExit.current = true;
     if (await act(() => api.rooms.leave(room.id), '방에서 나왔어요.')) close();
   };
   const cancelRoom = async () => {
