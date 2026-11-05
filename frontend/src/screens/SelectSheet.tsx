@@ -4,7 +4,7 @@ import type { LatLng, WalkRoute, MatchCandidate, MatchCandidatesResponse, PlaceR
 import { ROOM_JOINABLE } from '../api/contract';
 import { useAction, useApp, useErrorHandler } from '../lib/app';
 import { isApiError } from '../lib/errors';
-import { destinationTitle, originTitle, formatClock, formatDiff, formatDistance, formatTime, formatWon, meetingKindLabel, minutesOf, perPersonFare } from '../lib/format';
+import { destinationTitle, originTitle, riders, formatClock, formatDiff, formatDistance, formatTime, formatWon, meetingKindLabel, minutesOf, perPersonFare } from '../lib/format';
 import { useMap } from '../components/map/MapLayout';
 import { distanceMeters, locateOnce } from '../lib/geolocate';
 import type { MapLayers, MapMarker } from '../components/map/markers';
@@ -320,9 +320,20 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
     const joined = await run(() => api.rooms.join(c.roomId, { tripId: trip.id }));
     if (joined) { toast('방에 참여했어요!', 'info'); finish(joined, joined.routePreview.length > 1 ? joined.routePreview : c.routePreview); }
   };
-  const create = async (note: string, luggageAllowed: boolean) => {
+  const create = async (note: string, luggageAllowed: boolean, party: number) => {
     if (!trip) return;
-    const room = await run(() => api.rooms.create({ sourceTripId: trip.id, capacity: CAPACITY, terms: { farePolicy: 'EQUAL_SPLIT', luggageAllowed, note: note.trim() || null } }));
+    const room = await run(async () => {
+      let source = trip;
+      if (party !== trip.passengerCount) {
+        // The host's party size lives on the trip (seats left = capacity − parties), so register it again.
+        await api.trips.cancel(trip.id).catch(() => {});
+        tripRef.current = null;
+        source = await api.trips.create({ origin: trip.origin, destination: trip.destination, desiredDepartureAt: trip.desiredDepartureAt, maxWaitMinutes: trip.maxWaitMinutes, maxDetourMinutes: trip.maxDetourMinutes, passengerCount: party });
+        tripRef.current = source;
+        setTrip(source);
+      }
+      return api.rooms.create({ sourceTripId: source.id, capacity: CAPACITY, terms: { farePolicy: 'EQUAL_SPLIT', luggageAllowed, note: note.trim() || null } });
+    });
     if (room) { toast('방을 열었어요. 만날 장소를 정해 주세요.', 'info'); finish(room, trip.route?.path ?? room.routePreview); }
   };
 
@@ -539,7 +550,7 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
 
 function CandidateCard({ c, selected, onOpen }: { c: MatchCandidate; selected: boolean; onOpen(): void }) {
   const near = c.tier === 'NEAR';
-  const fare = perPersonFare(c.room.estimatedTaxiFareWon, c.room.participantCount + 1);
+  const fare = perPersonFare(c.room.estimatedTaxiFareWon, riders(c.room) + 1);
   return (
     <button type="button" onClick={onOpen}
       className={`relative w-[72%] shrink-0 snap-start overflow-hidden rounded-card border bg-white text-left transition active:scale-[.98] ${selected ? 'border-ink' : 'border-line'}`}>
@@ -554,7 +565,7 @@ function CandidateCard({ c, selected, onOpen }: { c: MatchCandidate; selected: b
         </div>
         <div className="mt-1 flex items-center gap-2.5 whitespace-nowrap text-[15px] text-mute">
           <span className="min-w-0 truncate">{formatDiff(c.departureDiffMinutes).replace(/\s*출발$/, '')}</span>
-          <span className="flex shrink-0 items-center gap-1"><PersonIcon size={15} /> {c.room.participantCount}/{c.room.capacity}</span>
+          <span className="flex shrink-0 items-center gap-1"><PersonIcon size={15} /> {riders(c.room)}/{c.room.capacity}</span>
           <span className="shrink-0 font-semibold text-ink">빈 자리 {c.seatsLeft}</span>
         </div>
       </div>
@@ -634,8 +645,10 @@ function ConditionRow({ departureText, passengers, onChange }: { departureText: 
 
 // ---------------------------------------------------------------- new room
 
-function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: TripIntent; departureText: string; busy: boolean; onCancel(): void; onCreate(note: string, luggage: boolean): void }) {
+function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: TripIntent; departureText: string; busy: boolean; onCancel(): void; onCreate(note: string, luggage: boolean, party: number): void }) {
   const [note, setNote] = useState('');
+  /** People riding with the host, host included. At least one seat must stay open for others. */
+  const [party, setParty] = useState(Math.min(trip.passengerCount, CAPACITY - 1));
   const [luggage, setLuggage] = useState(true);
   const fare = trip.route?.taxiFareWon ?? null;
   return (
@@ -653,16 +666,24 @@ function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: T
           <span className="pointer-events-none absolute bottom-2.5 right-4 text-xs text-mute">{note.length}/200</span>
         </div>
         <div className="mt-2"><Toggle checked={luggage} onChange={setLuggage} label="큰 짐(캐리어 등) 괜찮아요" /></div>
-        <div className="mt-2 flex h-[60px] items-center gap-3 rounded-card border border-line px-4 text-[15px]">
-          <PersonIcon size={20} className="text-mute" />
-          <span className="flex-1 font-medium">정원 {CAPACITY}명 · 앞 1 · 뒤 2</span>
-          <span className="text-mute">{departureText} 출발</span>
+        <div className="mt-2 rounded-card border border-line px-4 py-3">
+          <div className="flex items-center gap-3 text-[15px]">
+            <PersonIcon size={20} className="shrink-0 text-mute" />
+            <span className="flex-1 font-medium">나 포함 같이 타는 인원</span>
+            <div className="flex rounded-full bg-fog p-1" role="radiogroup" aria-label="나 포함 같이 타는 인원">
+              {Array.from({ length: CAPACITY - 1 }, (_, i) => i + 1).map(n => (
+                <button key={n} type="button" role="radio" aria-checked={party === n} onClick={() => setParty(n)}
+                  className={`h-9 min-w-[52px] rounded-full px-3 text-[15px] font-semibold transition ${party === n ? 'bg-ink text-white' : 'text-mute-dark'}`}>{n}명</button>
+              ))}
+            </div>
+          </div>
+          <p className="mt-2 pl-8 text-[13px] text-mute">정원 {CAPACITY}명(앞 1 · 뒤 2) 중 {CAPACITY - party}자리를 함께 탈 이웃에게 열어요 · {departureText} 출발</p>
         </div>
         <p className="mt-3 text-[13px] leading-relaxed text-mute">
-          요금은 똑같이 나눠요{fare != null && <> · 예상 총 {formatWon(fare)} (3명이면 1인 {formatWon(perPersonFare(fare, CAPACITY)!)})</>}. 출발 {formatTime(trip.desiredDepartureAt)}.
+          요금은 똑같이 나눠요{fare != null && <> · 예상 총 {formatWon(fare)} (다 차면 1인 {formatWon(perPersonFare(fare, CAPACITY)!)})</>}. 출발 {formatTime(trip.desiredDepartureAt)}.
         </p>
       </div>
-      <button type="button" className="btn-ink mt-4 w-full shrink-0" disabled={busy} onClick={() => onCreate(note, luggage)}>{busy ? '방을 여는 중…' : '방 만들기'}</button>
+      <button type="button" className="btn-ink mt-4 w-full shrink-0" disabled={busy} onClick={() => onCreate(note, luggage, party)}>{busy ? '방을 여는 중…' : '방 만들기'}</button>
     </div>
   );
 }
@@ -674,7 +695,7 @@ function RoomIntro({ candidate, trip, busy, onBack, onJoin }: { candidate: Match
   const [room, setRoom] = useState<RoomDetail | null>(null);
   useEffect(() => { api.rooms.get(candidate.roomId).then(setRoom).catch(onError); }, [candidate.roomId, onError]);
   const r = room ?? candidate.room;
-  const after = r.participantCount + 1;
+  const after = riders(r) + 1;
   const perPerson = perPersonFare(r.estimatedTaxiFareWon, after);
   const minutes = trip?.route ? Math.round(minutesOf(trip.route.durationSeconds) + candidate.estimatedDetourMinutes) : null;
   const cannotJoin = room ? !room.canJoin : false;
@@ -700,7 +721,7 @@ function RoomIntro({ candidate, trip, busy, onBack, onJoin }: { candidate: Match
           <Info label="방장"><span className="flex items-center gap-2"><Avatar name={r.hostNickname} size={26} />{r.hostNickname}</span></Info>
           <Info label="출발">{formatTime(r.departureAt)}</Info>
           <Info label="만나는 곳">{r.meetingPoint ? `${r.meetingPoint.name} · ${meetingKindLabel[r.meetingPoint.kind]}` : '참여 후 함께 정해요'}</Info>
-          <Info label="참여 인원">{r.participantCount}/{r.capacity}명 · 빈 자리 {r.seatsLeft}</Info>
+          <Info label="탑승 인원">{riders(r)}/{r.capacity}명 · 빈 자리 {r.seatsLeft}</Info>
           <Info label="예상 요금">{perPerson != null ? <>1인 <b>{formatWon(perPerson)}</b> <span className="text-mute">/ 총 {formatWon(r.estimatedTaxiFareWon!)}</span></> : '요금 정보 없음'}</Info>
           <Info label="예상 경로">{minutes != null ? `약 ${minutes}분 (추가 이동 약 ${Math.round(candidate.estimatedDetourMinutes)}분)` : '-'}</Info>
           <Info label="큰 짐">{r.terms.luggageAllowed ? '괜찮아요' : '어려워요'}</Info>
@@ -745,7 +766,7 @@ function RoomPreview({ room: summary, detail, walk, busy, onClose, onGo, onCance
   const cannotJoin = detail ? !detail.canJoin : false;
   // Per-person fare depends on how many end up riding: full room (cheapest) … me joining now (dearest).
   const low = perPersonFare(r.estimatedTaxiFareWon, r.capacity);
-  const high = perPersonFare(r.estimatedTaxiFareWon, r.participantCount + 1);
+  const high = perPersonFare(r.estimatedTaxiFareWon, riders(r) + 1);
   const fareRange = low == null || high == null ? '-' : low === high ? formatWon(low) : `${formatWon(low).replace('원', '')}~${formatWon(high)}`;
   const pickupName = r.meetingPoint?.name ?? originTitle(r);
   const pickup = r.meetingPoint?.location ?? r.approxOrigin;
@@ -808,7 +829,7 @@ function RoomPreview({ room: summary, detail, walk, busy, onClose, onGo, onCance
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-center">
           <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[12px] text-mute">출발</p><p className="mt-0.5 text-[15px] font-semibold">{formatClock(r.departureAt)}</p></div>
-          <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[12px] text-mute">인원</p><p className="mt-0.5 text-[15px] font-semibold">{r.participantCount}/{r.capacity}명</p></div>
+          <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[12px] text-mute">인원</p><p className="mt-0.5 text-[15px] font-semibold">{riders(r)}/{r.capacity}명</p></div>
           <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[12px] text-mute">1인 예상</p><p className="mt-0.5 whitespace-nowrap text-[14px] font-semibold tracking-tight">{fareRange}</p></div>
         </div>
         <p className="mt-2 text-center text-[12px] text-mute">1인 요금은 함께 타는 인원에 따라 달라져요</p>

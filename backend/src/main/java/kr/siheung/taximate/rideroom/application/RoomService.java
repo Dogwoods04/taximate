@@ -76,7 +76,14 @@ public class RoomService implements RideRoomApi {
         r.capacity=request.capacity(); r.departureAt=request.departureAt()==null?t.desiredDepartureAt():request.departureAt();
         r.departureWindowEnd=r.departureAt.plusMinutes(t.maxWaitMinutes());
         if(!r.departureWindowEnd.isAfter(now())) throw error(ErrorCode.VALIDATION_FAILED);
-        r.terms(request.terms()); r.termsVersion=1; r.createdAt=r.updatedAt=now(); em.persist(r);
+        r.terms(request.terms()); r.termsVersion=1; r.createdAt=r.updatedAt=now();
+        // Default meeting place = the host's origin when it is a public place picked by search (never a GPS/map pin):
+        // everyone gathers where the host starts; the host can change it later from "약속 바꾸기".
+        String originName=publicName(t.origin());
+        if(originName!=null) r.meetingPoint(new kr.siheung.taximate.common.place.MeetingPointDto(null,
+                originName.length()>100?originName.substring(0,100):originName,
+                kr.siheung.taximate.common.place.MeetingPointKind.CUSTOM,t.origin().location(),null));
+        em.persist(r);
         add(r,memberId,t,Role.HOST); changed(r,"모집방이 만들어졌습니다"); return detail(r.id,memberId);
     }
     public RoomDetail join(UUID id,UUID memberId,UUID tripId) {

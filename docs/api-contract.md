@@ -130,7 +130,7 @@ Algorithm:
 1. **Spatial hard filter (PostGIS `geography`, meters, GiST):** other members' trips with status ∈ SEARCHABLE, not expired, consent present,
    `ST_DWithin(origin, mine, 500)` AND `ST_DWithin(destination, mine, 500)`.
 2. **Room lookup:** `RideRoomApi.findJoinableRoomsBySourceTripIds(hostTrips)`; drop rooms with `seatsLeft < my passengerCount`.
-3. **Route hard filters** (config `taximate.matching.*`): direction cosine ≥ 0.7, overlap ratio ≥ 0.5 (fraction of my resampled path within 150m of host path),
+3. **Route hard filters** (config `taximate.matching.*`): direction cosine ≥ 0.7, overlap ratio ≥ 0.5 (fraction of my resampled path within 150m of host path; when BOTH ends are within `priority-radius-meters` (200m) the overlap counts as 1.0 — the car route is traffic-aware, so the same two points can get a different road at a different time),
    |departure diff| ≤ min(30, my maxWait + host maxWait), estimated detour ≤ both parties' maxDetourMinutes.
 4. **Score** 0–100 = weighted (origin distance 0.25, destination 0.15, overlap 0.30, departure 0.20, detour 0.10).
 5. **Order:** tier NEAR (origin ≤200m) first, then EXTENDED; within tier by score desc. Max 20.
@@ -168,7 +168,7 @@ NEAR = every participant ≤200m straight-line, EXTENDED = ≤500m. Walking rout
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/api/rooms` | `CreateRoomRequest` | 201 `RoomDetail`. Source trip must be owner's and SEARCHING/NO_MATCH, not in an active room (409 `ALREADY_IN_ROOM`). |
+| POST | `/api/rooms` | `CreateRoomRequest` | 201 `RoomDetail`. Source trip must be owner's and SEARCHING/NO_MATCH, not in an active room (409 `ALREADY_IN_ROOM`). `meetingPoint` defaults to the host origin (kind `CUSTOM`, name = origin place name) when that origin was picked by search; GPS/map-pick origins leave it null. The host changes it with `PUT /plan`. |
 | GET | `/api/rooms/open` | `?lat&lng` (optional, one-shot GPS; never stored) | `RoomSummary[]` ≤10: status ∈ JOINABLE, not hidden, seatsLeft > 0, departureWindowEnd > now, caller not an ACTIVE participant. With lat/lng: approxOrigin within 3km ordered by distance; without: ordered by departureAt. |
 | GET | `/api/rooms/mine` | – | `RoomSummary[]` (rooms where I am ACTIVE, status ∈ ACTIVE ∪ recent read-only 24h) |
 | GET | `/api/rooms/{id}` | – | `RoomDetail` (any signed-in user; non-members get only ACTIVE `participants` (same `Participant` shape — no location data); `routePreview` is the end-trimmed host route for everyone) |

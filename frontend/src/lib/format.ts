@@ -38,6 +38,9 @@ export function formatDuration(seconds: number): string {
 export const originTitle = (r: { originName?: string | null; originLabel: string }) => r.originName || r.originLabel;
 export const destinationTitle = (r: { destinationName?: string | null; destinationLabel: string }) => r.destinationName || r.destinationLabel;
 
+/** People riding in a room (each participant may bring companions): capacity − seats left. */
+export const riders = (r: { capacity: number; seatsLeft: number }) => r.capacity - r.seatsLeft;
+
 export function formatDiff(raw: number): string {
   const min = Math.round(raw); // the API may send fractional minutes
   if (min === 0) return '출발 시간 같음';
@@ -51,7 +54,7 @@ export const farePolicyLabel: Record<FarePolicy, string> = {
 };
 
 export const meetingKindLabel: Record<MeetingPointKind, string> = {
-  BUS_STOP: '버스정류장', STATION_EXIT: '역 출구', LANDMARK: '랜드마크', CUSTOM: '직접 지정',
+  BUS_STOP: '버스정류장', STATION_EXIT: '역 출구', LANDMARK: '랜드마크', CUSTOM: '약속 장소',
 };
 
 export const roomStatusInfo: Record<RoomStatus, { label: string; desc: string; tone: string }> = {

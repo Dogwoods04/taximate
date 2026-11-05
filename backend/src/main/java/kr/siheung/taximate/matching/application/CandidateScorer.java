@@ -22,6 +22,10 @@ public class CandidateScorer {
         double direction=GeoUtils.bearingCosine(GeoUtils.bearingDegrees(mo,md),GeoUtils.bearingDegrees(ho,hd));
         if (direction < props.minDirectionCosine()) return Optional.empty();
         double overlap=Math.min(overlap(mine.route().path(),host.route().path()),overlap(host.route().path(),mine.route().path()));
+        // Same trip: both ends within the priority radius (200 m). The car route is traffic-aware, so the same
+        // two points can get a different road at a different time; don't reject the room for that.
+        boolean sameEnds = originDistance <= props.priorityRadiusMeters() && destinationDistance <= props.priorityRadiusMeters();
+        if (sameEnds) overlap = Math.max(overlap, 1.0);
         if (overlap < props.minOverlapRatio()) return Optional.empty();
         double departureDiff=Duration.between(mine.desiredDepartureAt(), departure).toMillis()/60000.0;
         double waitLimit=Math.min(props.maxDepartureDiffMinutes(),mine.maxWaitMinutes()+host.maxWaitMinutes());

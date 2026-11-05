@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import type { RoomSummary } from '../api/contract';
 import { useErrorHandler } from '../lib/app';
-import { formatTime , destinationTitle, originTitle } from '../lib/format';
+import { formatTime, destinationTitle, originTitle, riders } from '../lib/format';
 import { ArrowIcon, ChevronRightIcon, PersonIcon } from '../components/icons';
 import { RoomStatusChip, Spinner } from '../components/ui';
 import PageShell from './PageShell';
@@ -37,7 +37,7 @@ export default function MyRoomsScreen() {
                 </div>
                 <div className="mt-1 flex items-center gap-3 text-[13px] text-ink/60">
                   <span>{originTitle(r)}에서</span>
-                  <span className="flex items-center gap-1"><PersonIcon size={14} />{r.participantCount}/{r.capacity}</span>
+                  <span className="flex items-center gap-1"><PersonIcon size={14} />{riders(r)}/{r.capacity}</span>
                   <span>방장 {r.hostNickname}</span>
                 </div>
               </div>

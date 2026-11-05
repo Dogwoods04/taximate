@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, isMock } from '../api';
-import type { MeetingPoint, MeetingPointSuggestion, Message, RoomDetail, RoomEvent, TripIntent } from '../api/contract';
+import type { LatLng, MeetingPoint, Message, PlaceRef, RoomDetail, RoomEvent, TripIntent } from '../api/contract';
 import { useAction, useApp, useErrorHandler } from '../lib/app';
 import { isApiError } from '../lib/errors';
-import { farePolicyLabel, formatClock, formatCountdown, formatTime, formatWon, meetingKindLabel, minutesOf, perPersonFare, roomStatusInfo, toLocalInput, toOffsetIso , destinationTitle, originTitle } from '../lib/format';
+import { farePolicyLabel, formatClock, formatCountdown, formatTime, formatWon, meetingKindLabel, minutesOf, perPersonFare, roomStatusInfo, toLocalInput, toOffsetIso, destinationTitle, originTitle, riders } from '../lib/format';
 import { useMap } from '../components/map/MapLayout';
 import ReportDialog, { type ReportTarget } from '../components/ReportDialog';
-import { ArrowIcon, ChatIcon, CheckIcon, ChevronLeftIcon, ClockIcon, PersonIcon, PinIcon, SendIcon } from '../components/icons';
+import { ArrowIcon, ChatIcon, CheckIcon, ChevronLeftIcon, ClockIcon, CloseIcon, PersonIcon, PinIcon, SearchIcon, SendIcon } from '../components/icons';
 import { Avatar, FARE_DISCLAIMER, Notice, PageBars, RoomStatusChip, Sheet, Spinner, Toggle, useSlideIn } from '../components/ui';
 import { otwInsets, otwSheetHeight } from './layout';
 import { SheetHandle, useSheetDrag } from './useSheetDrag';
@@ -207,7 +207,7 @@ export default function OnTheWayScreen() {
         </div>
       </section>
 
-      {editing && <PlanEditor room={room} onClose={() => setEditing(false)} onSaved={r => { setRoom(r); setEditing(false); toast('약속을 바꿨어요. 모두 다시 확정해야 해요.', 'info'); }} />}
+      {editing && <PlanEditor room={room} start={{ name: originTitle(room), kind: 'CUSTOM', location: room.myRole === 'HOST' && myTrip ? myTrip.origin.location : room.approxOrigin, address: null }} onClose={() => setEditing(false)} onSaved={r => { setRoom(r); setEditing(false); toast('약속을 바꿨어요. 모두 다시 확정해야 해요.', 'info'); }} />}
       {report && <ReportDialog target={report} onClose={() => setReport(null)} />}
     </div>
   );
@@ -227,7 +227,7 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
   const joinable = room.status === 'OPEN' || room.status === 'COORDINATING';
   const people = room.participants.filter(p => p.status === 'ACTIVE');
   const me = people.find(p => p.memberId === myId);
-  const perPerson = perPersonFare(room.estimatedTaxiFareWon, room.participantCount);
+  const perPerson = perPersonFare(room.estimatedTaxiFareWon, riders(room));
   const confirmedCount = people.filter(p => p.confirmed).length;
 
   const confirm = async () => {
@@ -256,7 +256,7 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
           <div className="text-[13px] text-mute">예상 1인 요금</div>
           <div className="mt-1 text-[30px] font-bold leading-none tracking-[-0.03em]">{perPerson != null ? formatWon(perPerson) : '요금 정보 없음'}</div>
           {room.estimatedTaxiFareWon != null && <div className="mt-1.5 text-[13px] text-mute">총 {formatWon(room.estimatedTaxiFareWon)} · {farePolicyLabel[room.terms.farePolicy]}</div>}
-          <div className="mt-3 flex items-center gap-1.5 text-[17px] text-mute-dark"><PersonIcon size={18} className="text-mute" /> {room.participantCount}/{room.capacity}</div>
+          <div className="mt-3 flex items-center gap-1.5 text-[17px] text-mute-dark"><PersonIcon size={18} className="text-mute" /> {riders(room)}/{room.capacity}</div>
           <div className="mt-3 flex items-center gap-2.5">
             <Avatar name={room.hostNickname} size={36} />
             <span className="truncate text-[17px] font-semibold">{room.hostNickname}</span>
@@ -273,18 +273,18 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
           <span className="text-[13px] text-mute">{formatTime(room.departureAt)} 출발</span>
         </div>
         <div className="mt-2 flex items-start gap-3">
-          <PinIcon size={22} className={room.meetingPoint ? 'text-ink' : 'text-line'} />
+          <PinIcon size={22} className="text-ink" />
           <div className="min-w-0">
-            <div className="text-[17px] font-semibold">{room.meetingPoint ? room.meetingPoint.name : '아직 정하지 않았어요'}</div>
+            <div className="text-[17px] font-semibold">{room.meetingPoint ? room.meetingPoint.name : originTitle(room)}</div>
             <div className="text-[13px] text-mute">
-              {room.meetingPoint ? meetingKindLabel[room.meetingPoint.kind] : isHost ? '참여자들이 걷기 좋은 곳을 추천해 드려요.' : '방장이 정하면 알려드릴게요.'}
+              {room.meetingPoint ? meetingKindLabel[room.meetingPoint.kind] : '방 출발지'}
               {room.terms.luggageAllowed ? ' · 큰 짐 가능' : ' · 큰 짐 어려움'}
             </div>
           </div>
         </div>
         {room.terms.note && <p className="mt-3 rounded-2xl bg-fog-soft px-4 py-3 text-[14px] leading-relaxed">“{room.terms.note}”</p>}
         {isHost && joinable && (
-          <button type="button" className="btn-fog mt-4 h-12 w-full text-[15px] text-ink" onClick={onEdit}>{room.meetingPoint ? '약속 바꾸기' : '만날 장소 정하기'}</button>
+          <button type="button" className="btn-fog mt-4 h-12 w-full text-[15px] text-ink" onClick={onEdit}>약속 바꾸기</button>
         )}
       </div>
 
@@ -424,42 +424,33 @@ function Chat({ roomId, readOnly, messages, myId, onSent, onReport, active }: {
 
 // ---------------------------------------------------------------- host: meeting point / plan
 
-function PlanEditor({ room, onClose, onSaved }: { room: RoomDetail; onClose(): void; onSaved(r: RoomDetail): void }) {
-  const onError = useErrorHandler();
+function PlanEditor({ room, start, onClose, onSaved }: { room: RoomDetail; start: MeetingPoint; onClose(): void; onSaved(r: RoomDetail): void }) {
   const { busy, run } = useAction();
-  const [suggestions, setSuggestions] = useState<MeetingPointSuggestion[] | null>(null);
-  const [point, setPoint] = useState<MeetingPoint | null>(room.meetingPoint);
+  // Default: where everyone already is — the current meeting place, else the room's start.
+  const current = room.meetingPoint ?? start;
+  const [point, setPoint] = useState<MeetingPoint>(current);
   const [departure, setDeparture] = useState(() => toLocalInput(new Date(room.departureAt)));
   const [luggageAllowed, setLuggageAllowed] = useState(room.terms.luggageAllowed);
   const [note, setNote] = useState(room.terms.note ?? '');
-  useEffect(() => { api.rooms.suggestions(room.id).then(setSuggestions).catch(error => { setSuggestions([]); onError(error); }); }, [room.id, onError]);
 
   const save = async () => {
-    if (!point) return;
     const updated = await run(() => api.rooms.plan(room.id, {
       meetingPoint: point, departureAt: toOffsetIso(new Date(departure)),
       terms: { farePolicy: room.terms.farePolicy, luggageAllowed, note: note.trim() || null },
     }));
     if (updated) onSaved(updated);
   };
-  const same = (a: MeetingPoint | null, b: MeetingPoint) => !!a && a.name === b.name && a.location.lat === b.location.lat && a.location.lng === b.location.lng;
+  const same = (x: MeetingPoint, y: MeetingPoint) => x.name === y.name && x.location.lat === y.location.lat && x.location.lng === y.location.lng;
 
   return (
-    <Sheet title="약속 정하기" onClose={onClose} tall>
+    <Sheet title="약속 바꾸기" onClose={onClose} tall>
       <div className="space-y-6">
         <Group title="만날 장소">
-          {suggestions === null && <Spinner text="모두가 걷기 좋은 곳을 찾는 중…" />}
-          {suggestions?.length === 0 && <Notice>추천할 공공장소가 없어요.</Notice>}
           <div className="space-y-2">
-            {room.meetingPoint && !suggestions?.some(s => same(room.meetingPoint, s.point)) && (
-              <PointOption selected={same(point, room.meetingPoint)} title={room.meetingPoint.name} sub="현재 약속 장소" onClick={() => setPoint(room.meetingPoint)} />
-            )}
-            {suggestions?.map((s, i) => (
-              <PointOption key={s.point.id ?? i} selected={same(point, s.point)} title={s.point.name}
-                sub={`${meetingKindLabel[s.point.kind]} · 가장 먼 사람 도보 ${s.maxWalkMeters}m${s.walkMinutesMax !== null ? ` · 약 ${s.walkMinutesMax}분${s.walkSource === 'ESTIMATE' ? '(추정)' : ''}` : ''}`}
-                badge={s.tier === 'NEAR' ? '200m 이내' : undefined} onClick={() => setPoint(s.point)} />
-            ))}
+            <PointOption selected={same(point, current)} title={current.name} sub={room.meetingPoint ? '지금 약속 장소' : '방 출발지'} onClick={() => setPoint(current)} />
+            {!same(point, current) && <PointOption selected title={point.name} sub={point.address || '새로 고른 장소'} onClick={() => {}} />}
           </div>
+          <MeetingSearch near={current.location} onPick={p => setPoint({ name: p.name ?? '약속 장소', kind: 'CUSTOM', location: p.location, address: p.address ?? null })} />
         </Group>
         <Group title="출발 시간">
           <input type="datetime-local" className="field" value={departure} onChange={e => setDeparture(e.target.value)} />
@@ -469,9 +460,47 @@ function PlanEditor({ room, onClose, onSaved }: { room: RoomDetail; onClose(): v
           <Toggle checked={luggageAllowed} onChange={setLuggageAllowed} label="큰 짐(캐리어 등) 괜찮아요" />
         </Group>
         <Notice tone="warn">저장하면 약속이 v{room.termsVersion + 1}로 바뀌고, 모두의 확정이 초기화돼요.</Notice>
-        <button type="button" className="btn-ink w-full" disabled={!point || busy} onClick={save}>약속 저장</button>
+        <button type="button" className="btn-ink w-full" disabled={busy} onClick={save}>약속 저장</button>
       </div>
     </Sheet>
+  );
+}
+
+/** Search a different meeting place (public place / building), biased to the current one. */
+function MeetingSearch({ near, onPick }: { near: LatLng; onPick(p: PlaceRef): void }) {
+  const onError = useErrorHandler();
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<PlaceRef[] | null>(null);
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) { setResults(null); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api.places.search(q, near).then(r => { if (!cancelled) setResults(r); }).catch(e => { if (!cancelled) { setResults([]); onError(e); } });
+    }, 280);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [query, near, onError]);
+  return (
+    <div className="mt-3">
+      <label className="flex h-12 items-center gap-3 rounded-2xl bg-fog px-4">
+        <SearchIcon size={18} className="text-mute" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="다른 장소 검색 (역·건물 이름)" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-mute" />
+        {query && <button type="button" onClick={() => setQuery('')} aria-label="지우기" className="text-mute"><CloseIcon size={16} /></button>}
+      </label>
+      {results && (
+        <ul className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-line">
+          {results.length === 0 && <li className="px-4 py-3 text-sm text-mute">검색 결과가 없어요</li>}
+          {results.map((p, i) => (
+            <li key={p.providerPlaceId ?? i} className="border-b border-line last:border-0">
+              <button type="button" className="w-full px-4 py-3 text-left" onClick={() => { onPick(p); setQuery(''); }}>
+                <span className="block truncate text-[15px] font-semibold">{p.name}</span>
+                {p.address && <span className="block truncate text-xs text-mute">{p.address}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
