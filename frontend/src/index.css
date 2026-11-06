@@ -11,6 +11,18 @@ body {
 }
 button { -webkit-user-select: none; user-select: none; }
 
+/* Phone-style scrollbars in the mobile view (also inside the PC phone frame and desktop browsers):
+   a thin translucent thumb, no track/arrows, readable on both the white and the dark screens.
+   Chrome ignores ::-webkit-scrollbar once scrollbar-width/color are set, so those go to Firefox only. */
+html[data-view="mobile"] ::-webkit-scrollbar { width: 4px; height: 4px; }
+html[data-view="mobile"] ::-webkit-scrollbar-track,
+html[data-view="mobile"] ::-webkit-scrollbar-corner { background: transparent; }
+html[data-view="mobile"] ::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, .45); border-radius: 9999px; }
+html[data-view="mobile"] ::-webkit-scrollbar-button { display: none; }
+@supports not selector(::-webkit-scrollbar) {
+  html[data-view="mobile"] *:not(.no-scrollbar) { scrollbar-width: thin; scrollbar-color: rgba(128, 128, 128, .45) transparent; }
+}
+
 @layer components {
   /* Phone-width app column; on desktop it floats on the neutral backdrop. */
   .app-frame { @apply relative mx-auto h-[100dvh] w-full max-w-[430px] overflow-hidden bg-white; overflow: clip; }
