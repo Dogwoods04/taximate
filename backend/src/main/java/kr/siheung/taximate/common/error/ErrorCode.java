@@ -4,6 +4,8 @@ import org.springframework.http.HttpStatus;
 
 /** Stable error codes shared with the frontend (frontend/src/api/contract.ts ErrorCode). */
 public enum ErrorCode {
+    KAKAO_AUTH_FAILED(HttpStatus.BAD_GATEWAY),
+    NICKNAME_TAKEN(HttpStatus.CONFLICT),
     GENDER_REQUIRED(HttpStatus.CONFLICT),
     GENDER_SOURCE_LOCKED(HttpStatus.CONFLICT),
     GENDER_RESTRICTED(HttpStatus.FORBIDDEN),

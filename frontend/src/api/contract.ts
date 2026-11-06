@@ -26,6 +26,7 @@ export interface MeetingPoint {
 export type ProximityTier = 'NEAR' | 'EXTENDED';
 
 export type ErrorCode =
+  | 'KAKAO_AUTH_FAILED' | 'NICKNAME_TAKEN'
   | 'VALIDATION_FAILED' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'MEMBER_RESTRICTED'
   | 'LOCATION_CONSENT_REQUIRED' | 'ACTIVE_TRIP_EXISTS' | 'TRIP_NOT_SEARCHABLE' | 'ROUTE_UNAVAILABLE'
   | 'ROUTE_EXPIRED' | 'ROOM_NOT_JOINABLE' | 'ROOM_FULL' | 'ROOM_READ_ONLY' | 'ALREADY_IN_ROOM'
@@ -51,6 +52,9 @@ export const ROOM_JOINABLE: RoomStatus[] = ['OPEN', 'COORDINATING'];
 export const ROOM_READ_ONLY: RoomStatus[] = ['CONFIRMED', 'CLOSED', 'CANCELLED', 'EXPIRED'];
 
 // ---------- identity ----------
+export interface AuthOptions { devLogin: boolean; kakao: boolean }
+export interface KakaoLoginRequest { code: string; redirectUri: string }
+export interface KakaoLoginResponse extends DevLoginResponse { isNew: boolean; suggestedNickname: string }
 export interface DevLoginRequest { nickname: string }
 export interface DevLoginResponse { token: string; member: Member }
 export interface LocationConsent { id: UUID; policyVersion: string; agreedAt: ISODateTime }
@@ -62,6 +66,7 @@ export interface ServicesConsentRequest { policyVersion: string; items: ServiceI
 export type Gender = 'MALE' | 'FEMALE' | 'UNDISCLOSED';
 export type GenderSource = 'SELF' | 'KAKAO';
 export interface Member {
+  authProvider: 'DEV' | 'KAKAO';
   gender: Gender | null;
   genderSource: GenderSource | null;
   id: UUID;

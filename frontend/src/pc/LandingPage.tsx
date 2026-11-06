@@ -54,13 +54,13 @@ function Hero() {
       <div className="relative mx-auto grid max-w-[1200px] items-center gap-12 px-6 pb-20 pt-16 lg:grid-cols-[1.1fr_.9fr] lg:px-10 lg:pb-24 lg:pt-20">
         <div className="pc-fade-up">
           <p className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-[14px] font-semibold text-sun">
-            <span className="h-1.5 w-1.5 rounded-full bg-sun" /> 시흥 테스트 서비스
+            <span className="h-1.5 w-1.5 rounded-full bg-sun" /> 시흥시 테스트 서비스
           </p>
           <h1 className="mt-6 text-[56px] font-bold leading-[1.12] tracking-[-0.045em] xl:text-[68px]">
             같은 방향이면,<br /><span className="text-sun">함께 타요</span>
           </h1>
           <p className="mt-6 max-w-[520px] text-[19px] leading-relaxed text-white/70">
-            택시메이트는 시흥에서 같은 방향으로 가는 이웃을 찾아 택시를 나눠 타도록 연결해 주는 서비스예요.
+            택시메이트는 시흥시에서 같은 방향으로 가는 이웃을 찾아 택시를 나눠 타도록 연결해 주는 서비스예요.
           </p>
           <div className="mt-10 flex flex-wrap items-center gap-3">
             <TryButton size="lg" />
@@ -104,7 +104,7 @@ function About() {
   const items = [
     { k: '같은 방향', v: '출발지와 목적지가 모두 가까운 이웃만 이어 드려요.' },
     { k: '한 대를 함께', v: '택시 한 대를 나눠 타면 1인 요금이 줄어요.' },
-    { k: '가볍게 시작', v: '닉네임만 정하면 바로 쓸 수 있어요.' },
+    { k: '간편한 로그인', v: '닉네임만 설정하거나 카카오 로그인으로 사용할 수 있어요' },
   ];
   return (
     <section id="about" className="mx-auto max-w-[1200px] px-6 py-24 lg:px-10">

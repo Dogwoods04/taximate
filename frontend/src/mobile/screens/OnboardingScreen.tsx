@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { beginKakaoLogin, kakaoPendingName } from '../../lib/kakaoLogin';
 import GenderStep from './GenderStep';
 import { api, isMock } from '../../api';
 import { session } from '../../api/client';
@@ -20,6 +21,13 @@ export default function OnboardingScreen({ consentOnly = false, servicesOnly = f
   const [leaving, setLeaving] = useState(false);
   const loggedInHere = useRef(false);
   const navigate = useNavigate();
+  useEffect(() => {
+    if (!member || consentOnly || servicesOnly) return;
+    if (sessionStorage.getItem(kakaoPendingName) === member.id) setStep('name');
+    else if (!member.gender) setStep('gender');
+    else if (!member.locationConsent) setStep('consent');
+    else if (!member.servicesConsent) setStep('services');
+  }, [member?.id, loading, consentOnly, servicesOnly]);
 
   const go = (next: Step) => {
     setLeaving(true);
@@ -30,7 +38,7 @@ export default function OnboardingScreen({ consentOnly = false, servicesOnly = f
   if (!only && session.get() && loading) return <Dark><div className="grid flex-1 place-items-center"><div className="spinner" style={{ borderColor: 'rgba(255,255,255,.15)', borderTopColor: '#FFD966' }} /></div></Dark>;
   // A saved session skips the intro entirely.
   const onboarded = !!member?.gender && !!member?.locationConsent && !!member?.servicesConsent;
-  if (!only && member && onboarded && !loggedInHere.current) return <Navigate to="/" replace />;
+  if (!only && member && onboarded && sessionStorage.getItem(kakaoPendingName) !== member.id && !loggedInHere.current) return <Navigate to="/" replace />;
 
   return (
     <Dark>
@@ -64,6 +72,18 @@ function Brand() {
 
 function Intro({ leaving, onStart }: { leaving: boolean; onStart(): void }) {
   const [info, setInfo] = useState(false);
+  const [options, setOptions] = useState({ devLogin: false, kakao: false });
+  const [authError, setAuthError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void api.identity.options().then(setOptions).catch(() => setAuthError('로그인 방법을 불러오지 못했어요. 새로고침해 주세요.'));
+    const message = sessionStorage.getItem('taximate.login.message');
+    if (message) { setAuthError(message); sessionStorage.removeItem('taximate.login.message'); }
+  }, []);
+  const kakao = async () => {
+    setBusy(true); setAuthError('');
+    try { await beginKakaoLogin(); } catch (e) { setAuthError(e instanceof Error ? e.message : '다시 시도해 주세요.'); setBusy(false); }
+  };
   return (
     <div className="flex min-h-full flex-1 flex-col px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(48px,env(safe-area-inset-top))]">
       <header className="flex items-center justify-between border-b border-white/25 pb-6">
@@ -84,8 +104,12 @@ function Intro({ leaving, onStart }: { leaving: boolean; onStart(): void }) {
       <RouteArt leaving={leaving} />
 
       <div className={`mt-auto shrink-0 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: leaving ? '60ms' : '220ms' }}>
-        <button type="button" className="btn-sun w-full text-[18px]" onClick={onStart}>시작하기</button>
-        <p className="mt-4 text-center text-xs text-white/35">닉네임만으로 바로 시작해요</p>
+        <button type="button" disabled={!options.kakao || busy} className="btn w-full gap-3 text-[18px]" style={{ background: '#FEE500', color: 'rgba(0,0,0,.85)' }} onClick={kakao}>
+          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C5.9 3 1 6.7 1 11.2c0 2.9 2 5.5 5 7l-1.3 4.6c-.1.4.3.6.6.4l5.4-3.6 1.3.1c6.1 0 11-3.7 11-8.3S18.1 3 12 3Z" /></svg>
+          {busy ? '연결 중…' : '카카오 로그인'}
+        </button>
+        {options.devLogin && <button type="button" className="mt-4 w-full py-2 text-center text-sm text-white/65 underline underline-offset-4" onClick={onStart}>닉네임으로 체험하기</button>}
+        {authError && <p role="alert" className="mt-3 text-center text-sm text-white/75">{authError}</p>}
       </div>
     </div>
   );
@@ -111,10 +135,10 @@ function RouteArt({ leaving }: { leaving: boolean }) {
 // ---------------------------------------------------------------- 사용자 이름
 
 function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): void; onDone(member: Member): void }) {
-  const { setMember } = useApp();
+  const { member, setMember } = useApp();
   const { busy, run } = useAction();
   const navigate = useNavigate();
-  const [nickname, setNickname] = useState('');
+  const [nickname, setNickname] = useState(member?.nickname ?? '');
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { const t = setTimeout(() => input.current?.focus(), 450); return () => clearTimeout(t); }, []);
   const trimmed = nickname.trim();
@@ -123,6 +147,11 @@ function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): voi
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!valid || busy) return;
+    if (member) {
+      const updated = trimmed === member.nickname ? member : await run(() => api.identity.rename({ nickname: trimmed }));
+      if (!updated) return;
+      sessionStorage.removeItem(kakaoPendingName); setMember(updated); onDone(updated); return;
+    }
     const res = await run(() => api.identity.login({ nickname: trimmed }));
     if (!res) return;
     session.set(res.token);
@@ -158,7 +187,7 @@ function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): voi
       <div className={`mt-auto pt-10 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: leaving ? '0ms' : '240ms' }}>
         <button type="submit" className="btn-sun w-full" disabled={!valid || busy}>{busy ? '확인 중…' : '계속'}</button>
         <p className="mt-4 text-center text-xs leading-relaxed text-white/35">
-          개발용 로그인이에요. 정식 출시 전 실제 인증으로 바뀌어요.
+          {member?.authProvider === 'KAKAO' ? '카카오 이름을 가져왔어요. 원하는 이름으로 바꿀 수 있어요.' : '닉네임으로 체험하는 개발용 로그인이에요.'}
           {isMock && <><br />MOCK 모드: <b className="text-white/60">admin</b>으로 시작하면 운영자 메뉴가 보여요.</>}
         </p>
       </div>

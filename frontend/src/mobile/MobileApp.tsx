@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppProvider, useApp } from '../lib/app';
+import { kakaoPendingName } from '../lib/kakaoLogin';
 import MapLayout from './components/map/MapLayout';
 import OnboardingScreen from './screens/OnboardingScreen';
+import KakaoCallback from './screens/KakaoCallback';
 import GenderStep from './screens/GenderStep';
 import HomeScreen from './screens/HomeScreen';
 import OnTheWayScreen from './screens/OnTheWayScreen';
@@ -14,6 +16,7 @@ export default function MobileApp() {
     <div id="app-frame" className="app-frame">
       <AppProvider>
         <Routes>
+          <Route path="/auth/kakao" element={<KakaoCallback />} />
           <Route path="/start" element={<OnboardingScreen />} />
           <Route path="/consent" element={<RequireAuth><OnboardingScreen consentOnly /></RequireAuth>} />
           <Route path="/services" element={<RequireAuth><OnboardingScreen servicesOnly /></RequireAuth>} />
@@ -39,6 +42,6 @@ function RequireAuth({ children, admin = false, consent = false }: { children: R
   if (admin && member.role !== 'ADMIN') return <Navigate to="/" replace />;
   // Map screens need both agreements (location notice, external services). Anyone who hasn't finished them —
   // including people with a saved session from before a step was added — starts over from the Start screen.
-  if (consent && (!member.gender || !member.locationConsent || !member.servicesConsent)) return <Navigate to="/start" replace state={{ from: location.pathname }} />;
+  if (consent && (sessionStorage.getItem(kakaoPendingName) === member.id || !member.gender || !member.locationConsent || !member.servicesConsent)) return <Navigate to="/start" replace state={{ from: location.pathname }} />;
   return <>{children}</>;
 }

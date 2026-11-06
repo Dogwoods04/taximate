@@ -30,7 +30,7 @@ let state: State = (() => {
   return blank();
 })();
 // Upgrade persisted demos without treating missing gender as a completed choice.
-state.members.forEach(m => { m.gender ??= null; m.genderSource ??= null; });
+state.members.forEach(m => { m.authProvider ??= 'DEV'; m.gender ??= null; m.genderSource ??= null; });
 state.rooms.forEach(r => { r.sameGenderOnly ??= false; r.restrictedGender ??= null; });
 function eligible(r: Room, m = caller()) { return !r.sameGenderOnly || (!!r.restrictedGender && r.restrictedGender === m.gender); }
 function save() { localStorage.setItem(key, JSON.stringify(state)); }
@@ -96,7 +96,7 @@ function sweep() {
   save();
 }
 function makeMember(nickname: string): C.Member {
-  const m: C.Member = { id: uuid(), nickname, role: nickname === 'admin' ? 'ADMIN' : 'USER', status: 'ACTIVE', gender: null, genderSource: null, locationConsent: null, servicesConsent: null }; state.members.push(m); return m;
+  const m: C.Member = { id: uuid(), nickname, authProvider: 'DEV', role: nickname === 'admin' ? 'ADMIN' : 'USER', status: 'ACTIVE', gender: null, genderSource: null, locationConsent: null, servicesConsent: null }; state.members.push(m); return m;
 }
 function makeTrip(m: C.Member, body: C.CreateTripRequest): Trip {
   const t: Trip = { owner: m.id, value: { ...structuredClone(body), id: uuid(), status: 'SEARCHING', route: route(body.origin.location, body.destination.location), routeError: null, expiresAt: new Date(Date.parse(body.desiredDepartureAt) + body.maxWaitMinutes * 60000).toISOString(), createdAt: now() } }; state.trips.push(t); return t;
@@ -179,7 +179,24 @@ function compare(mine: C.TripIntent, other: C.TripIntent, departureAt: string) {
 }
 export const mockClient: ApiClient = {
   identity: {
-    login: b => apiCall(() => { const nickname = b.nickname.trim(); valid(nickname.length >= 2 && nickname.length <= 20); const m = state.members.find(m => m.nickname === nickname) ?? makeMember(nickname); const token = uuid(); state.tokens[token] = m.id; return { token, member: m }; }),
+    options: () => apiCall(() => ({ devLogin: true, kakao: true })),
+    kakaoLogin: () => apiCall(() => {
+      let m = state.members.find(m => m.authProvider === 'KAKAO');
+      const isNew = !m;
+      if (!m) {
+        let nickname = '카카오이웃', n = 1;
+        while (state.members.some(m => m.nickname === nickname)) nickname = '카카오이웃' + n++;
+        m = makeMember(nickname); m.authProvider = 'KAKAO'; m.gender = 'FEMALE'; m.genderSource = 'KAKAO';
+      }
+      const token = uuid(); state.tokens[token] = m.id;
+      return { token, member: m, isNew, suggestedNickname: m.nickname };
+    }),
+    rename: b => apiCall(() => {
+      const m = caller(true), nickname = b.nickname.trim(); valid(nickname.length >= 2 && nickname.length <= 20);
+      if (nickname === 'admin' || state.members.some(other => other.id !== m.id && other.nickname === nickname)) fail('NICKNAME_TAKEN');
+      m.nickname = nickname; return m;
+    }),
+    login: b => apiCall(() => { const nickname = b.nickname.trim(); valid(nickname.length >= 2 && nickname.length <= 20); const m = state.members.find(m => m.nickname === nickname) ?? makeMember(nickname); if (m.authProvider !== 'DEV') fail('NICKNAME_TAKEN'); const token = uuid(); state.tokens[token] = m.id; return { token, member: m }; }),
     me: () => apiCall(() => caller()),
     setGender: b => apiCall(() => { const m = caller(true); valid(['MALE','FEMALE','UNDISCLOSED'].includes(b.gender)); if (m.genderSource === 'KAKAO') fail('GENDER_SOURCE_LOCKED'); m.gender = b.gender; m.genderSource = 'SELF'; return m; }),
     agree: b => apiCall(() => { valid(b.policyVersion.trim()); const m = caller(true); return m.locationConsent = { id: uuid(), policyVersion: b.policyVersion, agreedAt: now() }; }),

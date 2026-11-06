@@ -14,12 +14,17 @@ Env (`.env.local`, see `.env.example`):
 |---|---|---|
 | `VITE_API_MODE` | `mock` | `mock` = in-browser fake backend (localStorage `taximate.mock.v3`); `http` = real backend |
 | `VITE_API_BASE_URL` | `http://localhost:8080` | REST `/api/**` + WS `/ws/rooms/{id}` |
-| `VITE_KAKAO_JS_KEY` | – | optional; without it (or if the SDK fails to load) the map is a schematic SVG of Siheung |
+| `VITE_KAKAO_JS_KEY` | — | Kakao JavaScript key for login and maps; required for real Kakao login, optional in mock mode |
 | `VITE_BASE` | `/` | deploy sub-path, e.g. `/taximate/` for GitHub Pages |
 
 ## Flow
 
-Start → 사용자 이름 (dev-login) → 위치 정보 동의 → Home → Select sheet → On the way.
+Start → 카카오 로그인 또는 닉네임 체험 → 사용자 이름 → 필요한 성별·위치·외부 서비스 동의 → Home → Select sheet → On the way.
+
+Kakao uses SDK 2.8.4 with SRI, a random one-time state in sessionStorage, and the backend code exchange.
+The callback is `${origin}${BASE_URL}auth/kakao`; PC iframe login opens at top level and returns to `/try`.
+New Kakao members confirm their prefilled nickname; existing members only complete missing onboarding steps.
+See the root README's 카카오 로그인 section for console domains, redirect URIs, consent items, and server secret configuration.
 
 - **Home**: one GPS fix on entry / recenter (`getCurrentPosition`, never stored); falls back to 시흥시청.
   Cards = `GET /api/rooms/open` near that fix. "지금 ▾" sets the departure. "현재 내 방" opens my active room.

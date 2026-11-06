@@ -16,6 +16,8 @@ public class ApiException extends RuntimeException {
         this.details = details == null ? Map.of() : details;
     }
 
+    public org.springframework.http.HttpStatus status() { return code.status(); }
+
     public ErrorCode code() {
         return code;
     }

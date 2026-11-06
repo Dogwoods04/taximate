@@ -9,6 +9,8 @@ import kr.siheung.taximate.identity.api.MemberStatus;
 @Entity @Table(name = "members")
 public class Member {
     @Id public UUID id;
+    @Column(unique=true) public Long kakaoId;
+    @Column(nullable=false,length=16) public String authProvider = "DEV";
     @Enumerated(EnumType.STRING) @Column(length=16) public kr.siheung.taximate.identity.api.Gender gender;
     @Enumerated(EnumType.STRING) @Column(length=16) public GenderSource genderSource;
     public OffsetDateTime genderUpdatedAt;

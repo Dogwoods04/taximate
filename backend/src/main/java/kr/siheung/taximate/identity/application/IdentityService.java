@@ -24,7 +24,7 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
     }
     public record ConsentDto(UUID id, String policyVersion, OffsetDateTime agreedAt) {}
     public record ServicesConsentDto(UUID id, String policyVersion, List<String> items, OffsetDateTime agreedAt) {}
-    public record MemberDto(UUID id, String nickname, MemberRole role, MemberStatus status, ConsentDto locationConsent, ServicesConsentDto servicesConsent, Gender gender, GenderSource genderSource) {}
+    public record MemberDto(UUID id, String nickname, MemberRole role, MemberStatus status, ConsentDto locationConsent, ServicesConsentDto servicesConsent, Gender gender, GenderSource genderSource, String authProvider) {}
     public record LoginDto(String token, MemberDto member) {}
     private Member member(UUID id) {
         Member m=em.find(Member.class,id);
@@ -44,7 +44,7 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
     }
     public MemberDto me(UUID id) {
         Member m=member(id); LocationConsent c=consent(id);
-        return new MemberDto(m.id,m.nickname,m.role,m.status,c==null?null:new ConsentDto(c.id,c.policyVersion,c.agreedAt),toDto(servicesConsent(id)),m.gender,m.genderSource);
+        return new MemberDto(m.id,m.nickname,m.role,m.status,c==null?null:new ConsentDto(c.id,c.policyVersion,c.agreedAt),toDto(servicesConsent(id)),m.gender,m.genderSource,m.authProvider);
     }
     @Override public Gender getGender(UUID id) { return member(id).gender; }
     public MemberDto setGender(UUID id,Gender gender) {
@@ -57,6 +57,7 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
         if(!props.devLoginEnabled()) throw ApiException.forbidden("Development login disabled");
         nickname=nickname.trim();
         if(nickname.length()<2 || nickname.length()>20) throw new ApiException(ErrorCode.VALIDATION_FAILED,"Invalid nickname");
+        lockNames();
         // Database advisory lock also serializes first login before a member row exists.
         // pg_advisory_xact_lock returns void; wrap it so the JDBC result is a plain integer.
         em.createNativeQuery("select 1 from (select pg_advisory_xact_lock(hashtextextended(:nickname, 0))) l").setParameter("nickname",nickname).getSingleResult();
@@ -65,11 +66,44 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
             m=new Member(); m.id=UUID.randomUUID(); m.nickname=nickname; m.status=MemberStatus.ACTIVE;
             m.createdAt=OffsetDateTime.now(clock); m.role=MemberRole.USER; em.persist(m);
         }
+        if (!"DEV".equals(m.authProvider)) throw new ApiException(ErrorCode.NICKNAME_TAKEN,"Use Kakao login for this account");
         m.role=Arrays.stream(props.adminNicknames().split(",")).map(String::trim).anyMatch(nickname::equals)?MemberRole.ADMIN:MemberRole.USER;
+        return issueToken(m);
+    }
+    private LoginDto issueToken(Member m) {
         byte[] bytes=new byte[32]; random.nextBytes(bytes);
         AuthToken t=new AuthToken(); t.token=Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         t.memberId=m.id; t.createdAt=t.lastUsedAt=OffsetDateTime.now(clock); em.persist(t);
         return new LoginDto(t.token,me(m.id));
+    }
+    // A single DB transaction lock covers all nickname writers, including first logins and renames.
+    private void lockNames() { em.createNativeQuery("select 1 from (select pg_advisory_xact_lock(871302014)) l").getSingleResult(); }
+    private boolean reserved(String name) { return Arrays.stream(props.adminNicknames().split(",")).map(String::trim).anyMatch(name::equals); }
+    private boolean taken(String name) { return em.createQuery("select count(m) from Member m where nickname=:name",Long.class).setParameter("name",name).getSingleResult()>0; }
+    public MemberDto rename(UUID id,String nickname) {
+        nickname=nickname.trim();
+        if(nickname.length()<2 || nickname.length()>20) throw new ApiException(ErrorCode.VALIDATION_FAILED,"Invalid nickname");
+        lockNames(); Member m=member(id); requireActive(id);
+        if(reserved(nickname) || (!m.nickname.equals(nickname) && taken(nickname))) throw new ApiException(ErrorCode.NICKNAME_TAKEN,"Nickname unavailable");
+        m.nickname=nickname; return me(id);
+    }
+    public record KakaoLoginDto(String token, MemberDto member, boolean isNew, String suggestedNickname) {}
+    public KakaoLoginDto kakaoLogin(KakaoClient.Profile profile) {
+        lockNames();
+        Member m=em.createQuery("from Member where kakaoId=:id",Member.class).setParameter("id",profile.id()).getResultStream().findFirst().orElse(null);
+        boolean isNew=m==null;
+        if(isNew) {
+            String base=profile.nickname().trim();
+            if(base.length()>20) base=base.substring(0,20);
+            if(base.length()<2) base="이웃"+(1000+random.nextInt(9000));
+            String name=base;
+            for(int n=1; reserved(name)||taken(name); n++) { String suffix=Integer.toString(n); name=base.substring(0,Math.min(base.length(),20-suffix.length()))+suffix; }
+            m=new Member(); m.id=UUID.randomUUID(); m.nickname=name; m.kakaoId=profile.id(); m.authProvider="KAKAO";
+            m.status=MemberStatus.ACTIVE; m.role=MemberRole.USER; m.createdAt=OffsetDateTime.now(clock); em.persist(m);
+        }
+        if(profile.gender()!=null) { m.gender=profile.gender(); m.genderSource=GenderSource.KAKAO; m.genderUpdatedAt=OffsetDateTime.now(clock); }
+        LoginDto login=issueToken(m);
+        return new KakaoLoginDto(login.token(),login.member(),isNew,m.nickname);
     }
     @Override public AuthenticatedMember authenticate(String token) {
         AuthToken t=token==null?null:em.find(AuthToken.class,token);

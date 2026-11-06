@@ -35,7 +35,16 @@ public class DemoKeepAlive {
         this.jdbc = jdbc; this.clock = clock; this.prefix = prefix == null ? "" : prefix.trim();
     }
 
-    @Scheduled(initialDelay = 15_000, fixedDelay = 300_000)
+    /**
+     * Runs once while the context starts — before the room/trip expiry jobs' first tick — so demo rooms survive
+     * the backend having been off for hours (e.g. overnight). Plain JDBC statements, auto-committed.
+     */
+    @jakarta.annotation.PostConstruct
+    void onStartup() {
+        try { keepAlive(); } catch (RuntimeException e) { log.warn("demo keep-alive at startup failed: {}", e.toString()); }
+    }
+
+    @Scheduled(initialDelay = 300_000, fixedDelay = 300_000)
     @Transactional
     public void keepAlive() {
         if (prefix.isEmpty()) return;

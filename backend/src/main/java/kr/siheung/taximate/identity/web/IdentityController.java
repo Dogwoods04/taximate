@@ -2,12 +2,22 @@ package kr.siheung.taximate.identity.web;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import kr.siheung.taximate.common.auth.*;
-import kr.siheung.taximate.identity.application.IdentityService;
+import kr.siheung.taximate.identity.application.*;
 import org.springframework.web.bind.annotation.*;
 @RestController
 public class IdentityController {
     private final IdentityService service;
-    public IdentityController(IdentityService service) { this.service=service; }
+    private final KakaoClient kakao;
+    private final KakaoProperties kakaoProps;
+    private final AuthProperties authProps;
+    public IdentityController(IdentityService service, KakaoClient kakao, KakaoProperties kakaoProps, AuthProperties authProps) {
+        this.service=service; this.kakao=kakao; this.kakaoProps=kakaoProps; this.authProps=authProps;
+    }
+    public record AuthOptions(boolean devLogin, boolean kakao) {}
+    @GetMapping("/api/auth/options") public AuthOptions options() { return new AuthOptions(authProps.devLoginEnabled(),kakaoProps.available()); }
+    public record KakaoRequest(@NotBlank @Size(max=4096) String code, @NotBlank @Size(max=2048) String redirectUri) {}
+    @PostMapping("/api/auth/kakao") public Object kakao(@Valid @RequestBody KakaoRequest r) { return service.kakaoLogin(kakao.exchange(r.code(),r.redirectUri())); }
+    @PutMapping("/api/me/nickname") public Object rename(@CurrentMember AuthenticatedMember me,@Valid @RequestBody LoginRequest r) { return service.rename(me.memberId(),r.nickname()); }
     public record GenderRequest(@NotNull kr.siheung.taximate.identity.api.Gender gender) {}
     @PutMapping("/api/me/gender") public Object gender(@CurrentMember AuthenticatedMember me,@Valid @RequestBody GenderRequest r) { return service.setGender(me.memberId(),r.gender()); }
     public record LoginRequest(@NotBlank @Size(min=2,max=20) String nickname) {}

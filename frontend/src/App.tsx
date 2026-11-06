@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react';
+import { useLocation } from 'react-router-dom';
 import { platform } from './lib/platform';
 import MobileApp from './mobile/MobileApp';
 
@@ -6,6 +7,7 @@ import MobileApp from './mobile/MobileApp';
 const PcApp = lazy(() => import('./pc/PcApp'));
 
 export default function App() {
-  if (platform.view === 'mobile') return <MobileApp />;
+  const { pathname } = useLocation();
+  if (platform.view === 'mobile' || pathname === '/auth/kakao') return <MobileApp />;
   return <Suspense fallback={null}><PcApp /></Suspense>;
 }

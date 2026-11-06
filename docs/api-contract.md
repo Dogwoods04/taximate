@@ -8,7 +8,7 @@ Change this file (lead) **before** changing either side.
 
 - Base path `/api`, JSON, camelCase. IDs are UUID strings.
 - Time: ISO-8601 with offset (`2026-11-02T18:30:00+09:00`). Server zone Asia/Seoul.
-- Auth: `Authorization: Bearer <token>` on every `/api/**` call except `POST /api/auth/dev-login`. Missing/invalid → 401 `UNAUTHENTICATED`.
+- Auth: `Authorization: Bearer <token>` on every `/api/**` call except `/api/auth/options`, `/api/auth/dev-login`, and `/api/auth/kakao`. Missing/invalid → 401 `UNAUTHENTICATED`.
 - Errors: HTTP status + body `{ "code": ErrorCode, "message": string, "details": object }`.
   ErrorCode values: see `common/error/ErrorCode.java`.
 - Idempotency: `POST /rooms/{id}/join` and `POST /rooms/{id}/confirm` are naturally idempotent
@@ -62,6 +62,9 @@ READ_ONLY = {CONFIRMED, CLOSED, CANCELLED, EXPIRED}: no join, no messages (409 `
 
 | Method | Path | Body | Response |
 |---|---|---|---|
+| GET | `/api/auth/options` | — | `{ devLogin: boolean, kakao: boolean }` |
+| POST | `/api/auth/kakao` | `{ code, redirectUri }` | `{ token, member: Member, isNew: boolean, suggestedNickname: string }`; allow-listed redirect only (400); invalid code 401 / provider failure 502 `KAKAO_AUTH_FAILED`. |
+| PUT | `/api/me/nickname` | `{ nickname: string(2–20) }` | Own `Member`; trimmed, unique, reserved admin names rejected (409 `NICKNAME_TAKEN`); role unchanged. |
 | POST | `/api/auth/dev-login` | `{ nickname: string(2–20) }` | `{ token: string, member: Member }` — creates member if new. Enabled only when `taximate.auth.dev-login-enabled`. Nicknames in `taximate.auth.admin-nicknames` get ADMIN. |
 | PUT | `/api/me/gender` | `{ gender: MALE | FEMALE | UNDISCLOSED }` | Own `Member`; sets SELF; 409 `GENDER_SOURCE_LOCKED` for KAKAO. |
 | GET | `/api/me` | – | `Member` |
@@ -71,14 +74,14 @@ READ_ONLY = {CONFIRMED, CLOSED, CANCELLED, EXPIRED}: no join, no messages (409 `
 | DELETE | `/api/me/consents/services` | – | 204. Marks the current record withdrawn. The app then asks again before the map screens. |
 
 ```ts
-Member          { gender: 'MALE' | 'FEMALE' | 'UNDISCLOSED' | null, genderSource: 'SELF' | 'KAKAO' | null, id, nickname, role: MemberRole, status: MemberStatus, locationConsent: LocationConsent | null, servicesConsent: ServicesConsent | null }
+Member          { authProvider: 'DEV' | 'KAKAO', gender: 'MALE' | 'FEMALE' | 'UNDISCLOSED' | null, genderSource: 'SELF' | 'KAKAO' | null, id, nickname, role: MemberRole, status: MemberStatus, locationConsent: LocationConsent | null, servicesConsent: ServicesConsent | null }
 LocationConsent { id, policyVersion, agreedAt }   // only current (non-withdrawn) consent is returned
 ServiceItem     = 'KAKAO' | 'TMAP'            // external services: Kakao Maps/Local/Mobility, TMAP pedestrian route
 ServicesConsent { id, policyVersion, items: ServiceItem[], agreedAt }   // only current (non-withdrawn) record
 ```
 
 ### Private gender and same-gender eligibility
-Own Member responses (/me and dev-login) include gender: MALE | FEMALE | UNDISCLOSED | null and genderSource: SELF | KAKAO | null. PUT /api/me/gender {gender} returns own Member, sets SELF and gender_updated_at; KAKAO source rejects SELF updates with 409 GENDER_SOURCE_LOCKED. Gender is never included in other public DTOs. Internal IdentityApi.getGender is for eligibility only. Future Kakao login may fill/override SELF.
+Own Member responses (/me and dev-login) include gender: MALE | FEMALE | UNDISCLOSED | null and genderSource: SELF | KAKAO | null. PUT /api/me/gender {gender} returns own Member, sets SELF and gender_updated_at; KAKAO source rejects SELF updates with 409 GENDER_SOURCE_LOCKED. Gender is never included in other public DTOs. Internal IdentityApi.getGender is for eligibility only. Kakao login fills/overrides SELF only with consented provider gender. Kakao accounts cannot be accessed using dev-login. New Kakao names use numeric suffixes on collision and never use reserved admin names; Kakao tokens are never persisted.
 
 ## places / external-mobility (owner: mobility-matching)
 

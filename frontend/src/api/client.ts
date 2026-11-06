@@ -7,6 +7,9 @@ export class ApiError extends Error {
 }
 export interface ApiClient {
   identity: {
+    options(): Promise<C.AuthOptions>;
+    kakaoLogin(body: C.KakaoLoginRequest): Promise<C.KakaoLoginResponse>;
+    rename(body: { nickname: string }): Promise<C.Member>;
     login(body: C.DevLoginRequest): Promise<C.DevLoginResponse>;
     me(): Promise<C.Member>;
     setGender(body: { gender: C.Gender }): Promise<C.Member>;
