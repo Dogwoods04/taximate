@@ -11,11 +11,13 @@ import ReportDialog, { type ReportTarget } from '../components/ReportDialog';
 import { ArrowIcon, ChatIcon, CheckIcon, ChevronLeftIcon, ClockIcon, CloseIcon, PersonIcon, PinIcon, SearchIcon, SendIcon } from '../components/icons';
 import { Avatar, FARE_DISCLAIMER, Notice, PageBars, RoomStatusChip, Sheet, Spinner, Toggle, useSlideIn } from '../components/ui';
 import { maxSheetHeight, otwInsets, otwSheetHeight } from './layout';
+import { remScale } from '../../lib/platform';
 import { useKeyboardOpen } from '../useKeyboard';
 import { endedReason, isEnded, knownEnded, rememberEnded } from '../endedRooms';
 import { SheetHandle, useSheetDrag } from './useSheetDrag';
 import { roomLayers, roomPoints } from './SelectSheet';
 import ChatPlaceCard from '../components/ChatPlaceCard';
+import { DateTimePicker, formatLocalChoice } from '../components/DateTimePicker';
 
 function useNow(ms = 1000) {
   const [now, setNow] = useState(Date.now());
@@ -57,7 +59,7 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
   const isMember = !!room && room.myRole !== 'NONE';
   const sheet = useSheetDrag(map.size, otwSheetHeight(map.size), 'otw');
   // Leave room for a place card and the composer even on the collapsed chat page.
-  const chatMinHeight = Math.min(maxSheetHeight(map.size), 600);
+  const chatMinHeight = Math.min(maxSheetHeight(map.size), Math.round(600 * remScale()));
   const sheetH = page === 1 && isMember ? Math.max(sheet.settledHeight, chatMinHeight) : sheet.settledHeight;
   // Typing in the chat with the on-screen keyboard open (Android & co.; iOS pans the page itself):
   // the sheet covers the whole map with its top just under the back button and drops its header/footer,
@@ -217,23 +219,23 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
         {/* timer pill: time left until departure */}
         <div className="absolute left-1/2 top-0 flex h-12 -translate-x-1/2 -translate-y-1/2 items-center gap-2.5 rounded-full bg-ink px-6 text-white shadow-float [--clock-hand:#151515]" role="timer" aria-label="출발까지 남은 시간">
           <ClockIcon size={20} className="text-white" />
-          <span className="text-[20px] font-semibold tabular-nums tracking-tight">{timerText}</span>
+          <span className="text-[1.25rem] font-semibold tabular-nums tracking-tight">{timerText}</span>
         </div>
 
         <div className={`shrink-0 pt-6 ${chatMode ? 'hidden' : ''}`}><SheetHandle controls={sheet} /></div>
         <div className={`shrink-0 px-6 pt-1 ${chatMode ? 'hidden' : ''}`}>
           <div className="flex items-center justify-between">
-            <span className="text-[15px] text-mute">목적지</span>
+            <span className="text-[0.9375rem] text-mute">목적지</span>
             <RoomStatusChip status={room.status} />
           </div>
           <div className="mt-2 flex h-12 items-center gap-4">
             <ArrowIcon size={22} className="-scale-x-100 shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-[18px] font-medium">{destinationTitle(room)}</span>
+            <span className="min-w-0 flex-1 truncate text-[1.125rem] font-medium">{destinationTitle(room)}</span>
             {page === 0 && unread > 0 && (
               <button type="button" onClick={() => goTo(1)} aria-label={`새 메시지 ${unread}개`}
                 className="animate-pop relative grid h-12 w-12 shrink-0 place-items-center rounded-full bg-ink text-sun shadow-float">
                 <ChatIcon size={22} />
-                <span className="absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full border-2 border-white bg-sun px-1 text-[11px] font-bold text-ink">{unread > 9 ? '9+' : unread}</span>
+                <span className="absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full border-2 border-white bg-sun px-1 text-[0.6875rem] font-bold text-ink">{unread > 9 ? '9+' : unread}</span>
               </button>
             )}
           </div>
@@ -315,13 +317,13 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
       {/* fare + seats (replaces the mockup's car block) */}
       <div className="flex items-stretch gap-4">
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] text-mute">예상 1인 요금</div>
-          <div className="mt-1 text-[30px] font-bold leading-none tracking-[-0.03em]">{perPerson != null ? formatWon(perPerson) : '요금 정보 없음'}</div>
-          {room.estimatedTaxiFareWon != null && <div className="mt-1.5 text-[13px] text-mute">총 {formatWon(room.estimatedTaxiFareWon)} · {farePolicyLabel[room.terms.farePolicy]}</div>}
-          <div className="mt-3 flex items-center gap-1.5 text-[17px] text-mute-dark"><PersonIcon size={18} className="text-mute" /> {riders(room)}/{room.capacity}</div>
+          <div className="text-[0.8125rem] text-mute">예상 1인 요금</div>
+          <div className="mt-1 text-[1.875rem] font-bold leading-none tracking-[-0.03em]">{perPerson != null ? formatWon(perPerson) : '요금 정보 없음'}</div>
+          {room.estimatedTaxiFareWon != null && <div className="mt-1.5 text-[0.8125rem] text-mute">총 {formatWon(room.estimatedTaxiFareWon)} · {farePolicyLabel[room.terms.farePolicy]}</div>}
+          <div className="mt-3 flex items-center gap-1.5 text-[1.0625rem] text-mute-dark"><PersonIcon size={18} className="text-mute" /> {riders(room)}/{room.capacity}</div>
           <div className="mt-3 flex items-center gap-2.5">
             <Avatar name={room.hostNickname} size={36} />
-            <span className="truncate text-[17px] font-semibold">{room.hostNickname}</span>
+            <span className="truncate text-[1.0625rem] font-semibold">{room.hostNickname}</span>
             <span className="shrink-0 whitespace-nowrap text-xs text-mute">방장</span>
           </div>
         </div>
@@ -331,22 +333,22 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
       {/* meeting point */}
       <div className="rounded-card border border-line p-5">
         <div className="flex items-center justify-between">
-          <span className="text-[13px] text-mute">만나는 곳</span>
-          <span className="text-[13px] text-mute">{formatTime(room.departureAt)} 출발</span>
+          <span className="text-[0.8125rem] text-mute">만나는 곳</span>
+          <span className="text-[0.8125rem] text-mute">{formatTime(room.departureAt)} 출발</span>
         </div>
         <div className="mt-2 flex items-start gap-3">
           <PinIcon size={22} className="text-ink" />
           <div className="min-w-0">
-            <div className="text-[17px] font-semibold">{room.meetingPoint ? room.meetingPoint.name : originTitle(room)}</div>
-            <div className="text-[13px] text-mute">
+            <div className="text-[1.0625rem] font-semibold">{room.meetingPoint ? room.meetingPoint.name : originTitle(room)}</div>
+            <div className="text-[0.8125rem] text-mute">
               {room.meetingPoint ? meetingKindLabel[room.meetingPoint.kind] : '방 출발지'}
               {room.terms.luggageAllowed ? ' · 큰 짐 가능' : ' · 큰 짐 어려움'}
             </div>
           </div>
         </div>
-        {room.terms.note && <p className="mt-3 rounded-2xl bg-fog-soft px-4 py-3 text-[14px] leading-relaxed">“{room.terms.note}”</p>}
+        {room.terms.note && <p className="mt-3 rounded-2xl bg-fog-soft px-4 py-3 text-[0.875rem] leading-relaxed">“{room.terms.note}”</p>}
         {isHost && joinable && (
-          <button type="button" className="btn-fog mt-4 h-12 w-full text-[15px] text-ink" onClick={onEdit}>약속 바꾸기</button>
+          <button type="button" className="btn-fog mt-4 h-12 w-full text-[0.9375rem] text-ink" onClick={onEdit}>약속 바꾸기</button>
         )}
       </div>
 
@@ -354,8 +356,8 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
       {isMember && (
         <div>
           <div className="flex items-end justify-between">
-            <h3 className="text-[19px] font-bold tracking-tight">전원 확정</h3>
-            <span className="text-[13px] text-mute">약속 v{room.termsVersion} · {confirmedCount}/{people.length} 확정</span>
+            <h3 className="text-[1.1875rem] font-bold tracking-tight">전원 확정</h3>
+            <span className="text-[0.8125rem] text-mute">약속 v{room.termsVersion} · {confirmedCount}/{people.length} 확정</span>
           </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-fog">
             <div className="h-full rounded-full bg-sun-deep transition-all duration-500" style={{ width: `${people.length ? (confirmedCount / people.length) * 100 : 0}%` }} />
@@ -364,7 +366,7 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
             {people.map((p, i) => (
               <li key={p.memberId || i} className="flex items-center gap-3 py-3">
                 <Avatar name={p.nickname} size={34} tone={p.confirmed ? 'ink' : 'fog'} />
-                <span className="min-w-0 flex-1 truncate text-[15px] font-medium">
+                <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium">
                   {p.nickname}{p.memberId === myId && <span className="text-mute"> (나)</span>}{p.role === 'HOST' && <span className="text-xs text-mute"> · 방장</span>}
                 </span>
                 {p.confirmed ? <span className="chip bg-ink text-sun"><CheckIcon size={14} className="mr-0.5" />확정</span> : <span className="chip">대기</span>}
@@ -419,10 +421,10 @@ function SeatMap({ filled, capacity }: { filled: number; capacity: number }) {
     </span>
   );
   return (
-    <div className="flex w-[132px] shrink-0 flex-col items-center justify-center gap-3 rounded-card bg-gradient-to-b from-sun to-sun-pale px-3 py-4" aria-label={`좌석 ${filled}/${capacity}`}>
+    <div className="flex w-[8.25rem] shrink-0 flex-col items-center justify-center gap-3 rounded-card bg-gradient-to-b from-sun to-sun-pale px-3 py-4" aria-label={`좌석 ${filled}/${capacity}`}>
       <div className="flex w-full justify-end pr-2">{front.map(seat)}</div>
       <div className="flex gap-2">{back.map((t, i) => seat(t, i + 1))}</div>
-      <span className="text-[11px] font-semibold text-ink/60">앞 1 · 뒤 {Math.max(0, capacity - 1)}</span>
+      <span className="text-[0.6875rem] font-semibold text-ink/60">앞 1 · 뒤 {Math.max(0, capacity - 1)}</span>
     </div>
   );
 }
@@ -462,7 +464,7 @@ function Chat({ room, onSaved, roomId, readOnly, messages, myId, onSent, onRepor
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={list} onScroll={e => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48; }}
         className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain py-2">
-        <p id="chat-privacy" className="px-4 text-center text-[11.5px] leading-relaxed text-mute">전화번호 등 개인정보는 채팅에 공유하지 마세요.</p>
+        <p id="chat-privacy" className="px-4 text-center text-[0.7188rem] leading-relaxed text-mute">전화번호 등 개인정보는 채팅에 공유하지 마세요.</p>
         {messages.length === 0 && <p className="pt-8 text-center text-sm text-mute">아직 메시지가 없어요. 먼저 인사해 보세요.</p>}
         {messages.map(m => {
           if (m.type === 'SYSTEM') return <div key={m.id} className="px-6 text-center text-xs leading-relaxed text-mute">{m.body}</div>;
@@ -470,10 +472,10 @@ function Chat({ room, onSaved, roomId, readOnly, messages, myId, onSent, onRepor
           return (
             <div key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
               {!mine && <span className="mb-1 ml-1 text-xs font-medium text-mute">{m.senderNickname}</span>}
-              <div className={`max-w-[80%] whitespace-pre-wrap break-words rounded-[20px] px-4 py-2.5 text-[15px] leading-snug ${m.hidden ? 'bg-fog-soft italic text-mute' : mine ? 'rounded-br-md bg-ink text-white' : 'rounded-bl-md bg-fog'}`}>
+              <div className={`max-w-[80%] whitespace-pre-wrap break-words rounded-[20px] px-4 py-2.5 text-[0.9375rem] leading-snug ${m.hidden ? 'bg-fog-soft italic text-mute' : mine ? 'rounded-br-md bg-ink text-white' : 'rounded-bl-md bg-fog'}`}>
                 {m.hidden ? '운영 정책에 따라 가려진 메시지예요.' : m.body}
               </div>
-              <div className="mt-0.5 flex gap-2 px-1 text-[10px] text-mute">
+              <div className="mt-0.5 flex gap-2 px-1 text-[0.625rem] text-mute">
                 <span>{formatClock(m.createdAt)}</span>
                 {!mine && !m.hidden && <button type="button" className="underline" onClick={() => onReport({ type: 'MESSAGE', id: m.id, preview: m.body ?? '' })}>신고</button>}
               </div>
@@ -483,11 +485,11 @@ function Chat({ room, onSaved, roomId, readOnly, messages, myId, onSent, onRepor
       </div>
       <ChatPlaceCard room={room} messages={messages} myId={myId} onSaved={onSaved} onSent={onSent} />
       {readOnly ? (
-        <p className="shrink-0 rounded-2xl bg-fog-soft px-4 py-3 text-center text-[13px] text-mute">확정·종료된 방은 채팅이 잠겨요.</p>
+        <p className="shrink-0 rounded-2xl bg-fog-soft px-4 py-3 text-center text-[0.8125rem] text-mute">확정·종료된 방은 채팅이 잠겨요.</p>
       ) : (
         <form onSubmit={send} className="flex shrink-0 items-center gap-2 pt-2">
           <input value={text} maxLength={500} onChange={e => { setText(e.target.value); }} placeholder="메시지 보내기" aria-describedby="chat-privacy"
-            className="h-12 min-w-0 flex-1 rounded-full bg-fog px-5 text-[15px] outline-none placeholder:text-mute focus:ring-2 focus:ring-ink" />
+            className="h-12 min-w-0 flex-1 rounded-full bg-fog px-5 text-[0.9375rem] outline-none placeholder:text-mute focus:ring-2 focus:ring-ink" />
           <button type="submit" aria-label="보내기" disabled={busy || !text.trim()} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-ink text-sun transition active:scale-95 disabled:bg-line disabled:text-white">
             <SendIcon size={20} />
           </button>
@@ -505,6 +507,7 @@ function PlanEditor({ room, start, onClose, onSaved }: { room: RoomDetail; start
   const current = room.meetingPoint ?? start;
   const [point, setPoint] = useState<MeetingPoint>(current);
   const [departure, setDeparture] = useState(() => toLocalInput(new Date(room.departureAt)));
+  const [pickTime, setPickTime] = useState(false);
   const [luggageAllowed, setLuggageAllowed] = useState(room.terms.luggageAllowed);
   const [note, setNote] = useState(room.terms.note ?? '');
 
@@ -529,10 +532,19 @@ function PlanEditor({ room, start, onClose, onSaved }: { room: RoomDetail; start
           <MeetingSearch near={current.location} onPick={p => setPoint({ name: p.name ?? '약속 장소', kind: 'CUSTOM', location: p.location, address: p.address ?? null })} />
         </Group>
         <Group title="출발 시간">
-          <input type="datetime-local" className="field" value={departure} onChange={e => setDeparture(e.target.value)} />
+          <button type="button" onClick={() => setPickTime(v => !v)} aria-expanded={pickTime}
+            className="flex w-full items-center justify-between rounded-2xl bg-fog-soft px-4 py-3.5 text-left ring-1 ring-line">
+            <span className="text-[0.9375rem] font-semibold">{formatLocalChoice(departure)}</span>
+            <span className="flex items-center gap-1 text-sm font-semibold text-mute-dark"><ClockIcon size={16} />{pickTime ? '닫기' : '바꾸기'}</span>
+          </button>
+          {pickTime && (
+            <div className="mt-2 rounded-2xl bg-fog-soft px-3 pb-3 pt-2">
+              <DateTimePicker value={departure} onChange={setDeparture} min={new Date()} max={new Date(Date.now() + 7 * 86400000)} />
+            </div>
+          )}
         </Group>
         <Group title="방 소개">
-          <textarea className="field min-h-[88px] resize-none" maxLength={200} value={note} onChange={e => setNote(e.target.value)} placeholder="함께 탈 이웃에게 한마디 (200자)" />
+          <textarea className="field min-h-[5.5rem] resize-none" maxLength={200} value={note} onChange={e => setNote(e.target.value)} placeholder="함께 탈 이웃에게 한마디 (200자)" />
           <Toggle checked={luggageAllowed} onChange={setLuggageAllowed} label="큰 짐(캐리어 등) 괜찮아요" />
         </Group>
         <Notice tone="warn">저장하면 약속이 v{room.termsVersion + 1}로 바뀌고, 모두의 확정이 초기화돼요.</Notice>
@@ -560,7 +572,7 @@ function MeetingSearch({ near, onPick }: { near: LatLng; onPick(p: PlaceRef): vo
     <div className="mt-3">
       <label className="flex h-12 items-center gap-3 rounded-2xl bg-fog px-4">
         <SearchIcon size={18} className="text-mute" />
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="다른 장소 검색 (역·건물 이름)" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-mute" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="다른 장소 검색 (역·건물 이름)" className="min-w-0 flex-1 bg-transparent text-[0.9375rem] outline-none placeholder:text-mute" />
         {query && <button type="button" onClick={() => setQuery('')} aria-label="지우기" className="text-mute"><CloseIcon size={16} /></button>}
       </label>
       {results && (
@@ -569,7 +581,7 @@ function MeetingSearch({ near, onPick }: { near: LatLng; onPick(p: PlaceRef): vo
           {results.map((p, i) => (
             <li key={p.providerPlaceId ?? i} className="border-b border-line last:border-0">
               <button type="button" className="w-full px-4 py-3 text-left" onClick={() => { onPick(p); setQuery(''); }}>
-                <span className="block truncate text-[15px] font-semibold">{p.name}</span>
+                <span className="block truncate text-[0.9375rem] font-semibold">{p.name}</span>
                 {p.address && <span className="block truncate text-xs text-mute">{p.address}</span>}
               </button>
             </li>
@@ -581,7 +593,7 @@ function MeetingSearch({ near, onPick }: { near: LatLng; onPick(p: PlaceRef): vo
 }
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
-  return <div><h3 className="mb-2 text-[13px] font-semibold text-mute">{title}</h3>{children}</div>;
+  return <div><h3 className="mb-2 text-[0.8125rem] font-semibold text-mute">{title}</h3>{children}</div>;
 }
 
 function PointOption({ selected, title, sub, badge, onClick }: { selected: boolean; title: string; sub: string; badge?: string; onClick(): void }) {
@@ -589,7 +601,7 @@ function PointOption({ selected, title, sub, badge, onClick }: { selected: boole
     <button type="button" onClick={onClick} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left transition ${selected ? 'bg-ink text-white' : 'bg-fog-soft'}`}>
       <PinIcon size={20} className={selected ? 'text-sun' : 'text-mute'} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-semibold">{title}</span>
+        <span className="block truncate text-[0.9375rem] font-semibold">{title}</span>
         <span className={`block truncate text-xs ${selected ? 'text-white/60' : 'text-mute'}`}>{sub}</span>
       </span>
       {badge && <span className={`chip ${selected ? 'bg-sun text-ink' : 'bg-white'}`}>{badge}</span>}

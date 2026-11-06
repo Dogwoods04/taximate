@@ -22,7 +22,7 @@ export default function MyRoomsScreen() {
       {!rooms && <Spinner />}
       {rooms?.length === 0 && (
         <div className="rounded-card bg-fog-soft px-6 py-8">
-          <p className="text-[17px] font-semibold">참여 중인 방이 없어요</p>
+          <p className="text-[1.0625rem] font-semibold">참여 중인 방이 없어요</p>
           <p className="mt-1 text-sm text-mute">홈에서 어디로 갈지 검색해 보세요.</p>
           <button type="button" className="btn-ink mt-5 w-full" onClick={() => navigate('/')}>어디로 갈까요?</button>
         </div>
@@ -38,9 +38,9 @@ export default function MyRoomsScreen() {
                 <div className="flex flex-wrap items-center gap-2"><RoomStatusChip status={r.status} /><GenderChip enabled={r.sameGenderOnly} /><span className="text-xs text-ink/60">{formatTime(r.departureAt)}</span></div>
                 <div className="mt-2 flex items-center gap-2">
                   <ArrowIcon size={18} className="-scale-x-100 shrink-0" />
-                  <span className="truncate text-[18px] font-bold tracking-tight">{destinationTitle(r)}</span>
+                  <span className="truncate text-[1.125rem] font-bold tracking-tight">{destinationTitle(r)}</span>
                 </div>
-                <div className="mt-1 flex items-center gap-3 text-[13px] text-ink/60">
+                <div className="mt-1 flex items-center gap-3 text-[0.8125rem] text-ink/60">
                   <span>{originTitle(r)}에서</span>
                   <span className="flex items-center gap-1"><PersonIcon size={14} />{riders(r)}/{r.capacity}</span>
                   <span>방장 {r.hostNickname}</span>

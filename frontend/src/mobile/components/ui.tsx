@@ -46,7 +46,7 @@ export function Sheet({ title, onClose, children, tall = false }: { title: strin
         >
           <div className="mx-auto mt-3 h-1 w-10 shrink-0 rounded-full bg-line" />
           <div className="flex shrink-0 items-center justify-between px-6 pb-2 pt-4">
-            <h2 className="text-[22px] font-bold tracking-tight">{title}</h2>
+            <h2 className="text-[1.375rem] font-bold tracking-tight">{title}</h2>
             <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-fog text-ink" onClick={close} aria-label="닫기"><CloseIcon size={18} /></button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-[max(24px,env(safe-area-inset-bottom))] pt-2">{children}</div>
@@ -67,7 +67,7 @@ export function Spinner({ text, dark = false }: { text?: string; dark?: boolean 
 
 export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | 'error'; children: ReactNode }) {
   const cls = tone === 'error' ? 'bg-[#FFF0EE] text-[#B3261E]' : tone === 'warn' ? 'bg-sun-pale text-[#6B5200]' : 'bg-fog-soft text-mute-dark';
-  return <div className={`rounded-2xl px-4 py-3 text-[13px] leading-relaxed ${cls}`}>{children}</div>;
+  return <div className={`rounded-2xl px-4 py-3 text-[0.8125rem] leading-relaxed ${cls}`}>{children}</div>;
 }
 
 export function RoomStatusChip({ status }: { status: RoomStatus }) {
@@ -77,9 +77,9 @@ export function RoomStatusChip({ status }: { status: RoomStatus }) {
 
 export function Toggle({ checked, onChange, label, disabled = false }: { checked: boolean; onChange(v: boolean): void; label: string; disabled?: boolean }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)} className="flex w-full items-center justify-between py-2 text-[15px] font-medium disabled:opacity-50">
+    <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)} className="flex w-full items-center justify-between py-2 text-[0.9375rem] font-medium disabled:opacity-50">
       <span>{label}</span>
-      <span className={`relative block h-8 w-[52px] shrink-0 rounded-full transition-colors ${checked ? 'bg-ink' : 'bg-line'}`}>
+      <span className={`relative block h-8 w-[3.25rem] shrink-0 rounded-full transition-colors ${checked ? 'bg-ink' : 'bg-line'}`}>
         <span className={`absolute left-0 top-1 h-6 w-6 rounded-full shadow transition-transform ${checked ? 'translate-x-[24px] bg-sun' : 'translate-x-1 bg-white'}`} />
       </span>
     </button>

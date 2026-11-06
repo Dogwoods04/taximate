@@ -14,8 +14,8 @@ export default function PageShell({ title, sub, action, children }: { title: str
           </button>
           {action}
         </div>
-        <h1 className="animate-rise mt-8 text-[40px] font-bold leading-tight tracking-[-0.035em]">{title}</h1>
-        {sub && <p className="animate-rise mt-2 text-[15px] text-mute" style={{ animationDelay: '60ms' }}>{sub}</p>}
+        <h1 className="animate-rise mt-8 text-[2.5rem] font-bold leading-tight tracking-[-0.035em]">{title}</h1>
+        {sub && <p className="animate-rise mt-2 text-[0.9375rem] text-mute" style={{ animationDelay: '60ms' }}>{sub}</p>}
         <div className="animate-rise mt-8" style={{ animationDelay: '120ms' }}>{children}</div>
       </div>
     </div>

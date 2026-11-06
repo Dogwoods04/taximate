@@ -63,8 +63,16 @@ export function applyPlatform() {
   root.dataset.platform = platform.kind;
   root.dataset.view = platform.view;
   if (platform.embedded) root.dataset.embedded = 'true';
+  // Short visible height (iPhone Safari with its toolbars ≈ 690px, small phones): a smaller root font size makes
+  // the rem-based UI (text, spacing, buttons) ~9% more compact. Decided once at boot, keyboard closed — a
+  // media query would shrink the UI whenever the Android keyboard resizes the viewport.
+  if (platform.view === 'mobile' && window.innerHeight > 0 && window.innerHeight <= COMPACT_MAX_HEIGHT) root.dataset.density = 'compact';
   if (platform.view === 'mobile' && platform.kind !== 'ios') trackVisualViewport();
 }
+const COMPACT_MAX_HEIGHT = 760;
+
+/** Root font size ÷ 16: px layout constants in JS scale with the rem-based UI. */
+export const remScale = () => (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) / 16;
 
 // ---------------------------------------------------------------- keyboard / visual viewport
 

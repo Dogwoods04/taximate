@@ -46,7 +46,7 @@ export default function AdminScreen() {
         </div>
       )}
 
-      <h2 className="mt-10 text-[22px] font-bold tracking-tight">신고</h2>
+      <h2 className="mt-10 text-[1.375rem] font-bold tracking-tight">신고</h2>
       <div className="mt-3 flex gap-1 rounded-full bg-fog p-1">
         {FILTERS.map(f => (
           <button key={f.value} type="button" onClick={() => setFilter(f.value)}
@@ -65,8 +65,8 @@ export default function AdminScreen() {
 function Tile({ label, value, highlight = false }: { label: string; value: number | string; highlight?: boolean }) {
   return (
     <div className={`rounded-2xl p-3.5 ${highlight ? 'bg-sun' : 'bg-fog-soft'}`}>
-      <div className="text-[11px] font-medium text-ink/55">{label}</div>
-      <div className="mt-1 text-[22px] font-bold tracking-tight">{value}</div>
+      <div className="text-[0.6875rem] font-medium text-ink/55">{label}</div>
+      <div className="mt-1 text-[1.375rem] font-bold tracking-tight">{value}</div>
     </div>
   );
 }
@@ -97,7 +97,7 @@ function ReportCard({ report, onDone }: { report: Report; onDone(): void }) {
         <span className="text-xs font-semibold text-mute">{reportStatusLabel[report.status]}</span>
       </div>
       <div className="mt-3 rounded-2xl bg-fog-soft px-4 py-3">
-        <div className="break-words text-[15px]">{report.targetPreview ?? '(내용 없음)'}</div>
+        <div className="break-words text-[0.9375rem]">{report.targetPreview ?? '(내용 없음)'}</div>
         {report.targetType === 'ROOM' && <button type="button" className="mt-1 text-xs font-semibold underline" onClick={() => navigate(`/rooms/${report.targetId}`, { state: { moderation: true } })}>방 보기</button>}
       </div>
       {report.detail && <p className="mt-3 leading-relaxed">“{report.detail}”</p>}
@@ -108,7 +108,7 @@ function ReportCard({ report, onDone }: { report: Report; onDone(): void }) {
           <div className="mt-3 grid grid-cols-2 gap-2">
             {actions.map(a => (
               <button key={a} type="button" disabled={busy} onClick={() => act(a)}
-                className={`h-12 rounded-2xl text-[14px] font-semibold transition active:scale-[.98] disabled:opacity-50 ${a === 'DISMISS' ? 'bg-fog text-mute-dark' : 'bg-ink text-white'}`}>
+                className={`h-12 rounded-2xl text-[0.875rem] font-semibold transition active:scale-[.98] disabled:opacity-50 ${a === 'DISMISS' ? 'bg-fog text-mute-dark' : 'bg-ink text-white'}`}>
                 {ACTION_LABEL[a]}
               </button>
             ))}

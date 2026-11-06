@@ -183,6 +183,8 @@ export interface RoomSummary {
   estimatedTaxiFareWon: number | null; // host route whole fare; per person = this / participantCount
   originName: string | null;      // public place/building name the host picked by search; null for GPS/map pick (use originLabel)
   destinationName: string | null; // same for the destination
+  routeDistanceMeters: number | null;  // host route length (m); null if the host trip has no route
+  routeDurationSeconds: number | null; // host route driving time (s); the room map shows it like the select screen
 }
 export interface Participant {
   memberId: UUID;

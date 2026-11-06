@@ -15,6 +15,8 @@ import kr.siheung.taximate.common.place.MeetingPointDto;
  * @param originName      public place/building name of the host trip origin (PlaceRef.name) when it was chosen by
  *                        search (kind SEARCH, STATION_EXIT, BUS_STOP, LANDMARK); null for GPS/MAP_PICK. Never an address.
  * @param destinationName same for the destination.
+ * @param routeDistanceMeters  host trip route length (RouteView.distanceMeters), null if no route yet.
+ * @param routeDurationSeconds host trip route driving time (RouteView.durationSeconds), null if no route yet.
  * @param estimatedTaxiFareWon whole-route taxi fare of the host trip route (RouteView.taxiFareWon), null if unknown.
  *                             The UI shows per-person fare = estimatedTaxiFareWon / participantCount.
  */
@@ -36,5 +38,7 @@ public record RoomSummaryDto(
         Integer estimatedTaxiFareWon,
         String originName,
         String destinationName,
-        boolean sameGenderOnly) {
+        boolean sameGenderOnly,
+        Integer routeDistanceMeters,
+        Integer routeDurationSeconds) {
 }

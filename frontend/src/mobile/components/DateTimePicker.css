@@ -1,0 +1,36 @@
+/* react-day-picker restyled to the app palette (ink #151515, sun #FFD966, fog #EFEFEF, mute #8C8C8C).
+   `.tm-calendar.rdp-root` outranks the library's `.rdp-root` regardless of stylesheet order. */
+.tm-calendar.rdp-root {
+  --rdp-accent-color: #151515;
+  --rdp-accent-background-color: #FFF4CC;
+  --rdp-day-height: 42px;
+  --rdp-day-width: auto;
+  --rdp-day_button-height: 38px;
+  --rdp-day_button-width: 38px;
+  --rdp-day_button-border-radius: 9999px;
+  --rdp-day_button-border: none;
+  --rdp-selected-border: none;
+  --rdp-today-color: #151515;
+  --rdp-disabled-opacity: .25;
+  --rdp-nav-height: 40px;
+  --rdp-nav_button-width: 34px;
+  --rdp-nav_button-height: 34px;
+  --rdp-nav_button-disabled-opacity: .25;
+  --rdp-weekday-opacity: 1;
+  font-size: 15px;
+  color: #151515;
+}
+.tm-calendar .rdp-months, .tm-calendar .rdp-month { width: 100%; max-width: none; }
+.tm-calendar .rdp-month_grid { width: 100%; }
+.tm-calendar .rdp-month_caption { padding-left: 4px; }
+.tm-calendar .rdp-caption_label { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.tm-calendar .rdp-button_previous,
+.tm-calendar .rdp-button_next { border-radius: 9999px; background: #EFEFEF; }
+.tm-calendar .rdp-nav { gap: 6px; }
+.tm-calendar .rdp-chevron { fill: #151515; width: 14px; height: 14px; }
+.tm-calendar .rdp-weekday { font-size: 12px; font-weight: 600; color: #8C8C8C; padding: 6px 0; }
+.tm-calendar .rdp-day { text-align: center; }
+.tm-calendar .rdp-day .rdp-day_button { margin: 0 auto; font-weight: 500; transition: background-color .15s, color .15s; }
+.tm-calendar .rdp-day:not(.rdp-disabled):not(.rdp-selected) .rdp-day_button:hover { background: #EFEFEF; }
+.tm-calendar .rdp-today:not(.rdp-selected) .rdp-day_button { box-shadow: inset 0 0 0 2px #FFD966; font-weight: 700; }
+.tm-calendar .rdp-selected .rdp-day_button { background: #151515; color: #FFD966; font-weight: 700; font-size: 15px; }

@@ -6,13 +6,31 @@ import { useAction } from '../../lib/app';
 
 const normalize = (s: string) => s.replace(/\s+/g, '').toLowerCase();
 
+type Intent = 'meeting' | 'destination';
+type Phrase = { phrase: string; intent?: Intent };
+
+/** “만나는 지점/약속 장소/출발지 …” → meeting place; “목적지/도착지/내리는 곳 …” → destination. */
+const MEETING_WORDS = '(?:만나는|만날|모이는|모일)\\s*(?:지점|장소|곳|위치)|약속\\s*장소|출발지|출발\\s*장소|타는\\s*곳';
+const DEST_WORDS = '목적지|도착지|도착\\s*장소|내리는\\s*곳|내릴\\s*곳|가는\\s*곳';
+/** “<topic>을 <X>(으)로 바꿀까요/변경해요/정해요/할까요/가요…”: X may contain spaces (“경기 과학기술대학교”). */
+const INTENT_PATTERN = new RegExp(
+  `(${MEETING_WORDS}|${DEST_WORDS})\\s*(?:을|를|은|는|이|가|도)?\\s*(.{2,30}?)\\s*(?:쪽으로|으로|로)\\s*(?:바꿔|바꾸|바꿀|바꿨|변경|정해|정하|정할|할까|하면|해요|하죠|합시다|가요|갈까|가면|어때|괜찮)`, 'g');
+const DEST_TOPIC = new RegExp(`^(?:${DEST_WORDS})$`);
+
 /** Prefer the last place: “시흥시청 말고 시흥소방서로” means the fire station. */
-function placePhrase(body: string): string | undefined {
+function placePhrase(body: string): Phrase | undefined {
   const proposal = body.match(/^(.+?)\(.+\)을\(를\) 만날 장소나 목적지로 제안해요$/);
-  if (proposal) return proposal[1].trim();
+  if (proposal) return { phrase: proposal[1].trim() };
+  // An explicit “change the meeting place / destination to X” names any place, whatever its name ends with.
+  const intent = [...body.matchAll(INTENT_PATTERN)].at(-1);
+  if (intent) {
+    const phrase = intent[2].trim().replace(/\s*(?:앞|쪽|근처|부근|입구)$/, '').replace(/^["'“‘]|["'”’]$/g, '').trim();
+    if (phrase.length >= 2) return { phrase, intent: DEST_TOPIC.test(intent[1]) ? 'destination' : 'meeting' };
+  }
   const pattern = /[가-힣A-Za-z0-9·]+(?:로|길|동)\s*\d+(?:-\d+)?|[가-힣A-Za-z0-9·]+(?:주민센터|대학교|정류장|터미널|백화점|소방서|아파트|아울렛|병원|학교|센터|공원|시청|구청|마트|빌딩|타워|호텔|카페|은행|역)(?:\s*\d+\s*번?\s*출구)?|\d+\s*번?\s*출구/g;
   const matches = [...body.matchAll(pattern)];
-  return matches.at(-1)?.[0].trim();
+  const last = matches.at(-1)?.[0].trim();
+  return last ? { phrase: last } : undefined;
 }
 
 function matchesPlace(phrase: string, place: PlaceRef) {
@@ -20,10 +38,13 @@ function matchesPlace(phrase: string, place: PlaceRef) {
   // A station result must not silently replace a specifically mentioned exit.
   const exit = q.match(/^(.+역)(\d+)번?출구$/);
   if (exit) return name.includes(exit[1]) && name.match(/(\d+)번?출구/)?.[1] === exit[2];
-  return name.includes(q) || address.includes(q);
+  if (name.includes(q) || address.includes(q)) return true;
+  // “경기 과학기술대학교” ↔ “경기과학기술대학교”: every word of the phrase appears in the name or address.
+  const words = phrase.split(/\s+/).map(normalize).filter(Boolean);
+  return words.length > 1 && words.every(w => name.includes(w) || address.includes(w));
 }
 
-type Suggestion = { phrase: string; place: PlaceRef; messageId: string };
+type Suggestion = { phrase: string; intent?: Intent; place: PlaceRef; messageId: string };
 
 /**
  * Already the room's meeting place or destination → nothing to suggest. Same name, or close enough:
@@ -56,12 +77,12 @@ export default function ChatPlaceCard({ room, messages, myId, onSaved, onSent }:
 
   useEffect(() => {
     if (room.readOnly) { setSuggestion(null); return; }
-    let latest: { phrase: string; messageId: string } | undefined;
+    let latest: (Phrase & { messageId: string }) | undefined;
     for (const message of messages) {
       if (seen.current.has(message.id)) continue;
       if (message.type !== 'TEXT' || message.hidden || !message.body) continue;
-      const phrase = placePhrase(message.body);
-      if (phrase && !handled.has(normalize(phrase))) latest = { phrase, messageId: message.id };
+      const found = placePhrase(message.body);
+      if (found && !handled.has(normalize(found.phrase))) latest = { ...found, messageId: message.id };
     }
     if (!latest) return;
     let cancelled = false;
@@ -74,7 +95,7 @@ export default function ChatPlaceCard({ room, messages, myId, onSaved, onSent }:
       if (!lookup) {
         lookup = api.places.search(candidate.phrase, near).then(results => {
           const p = results[0];
-          return p && matchesPlace(candidate.phrase, p) && distance(near, p.location) <= 30000 ? p : null;
+          return p && matchesPlace(candidate.phrase, p) && distance(near, p.location) <= (candidate.intent === 'destination' ? 60000 : 30000) ? p : null;
         }).catch(() => null);
         cache.current.set(key, lookup);
       }
@@ -114,7 +135,7 @@ export default function ChatPlaceCard({ room, messages, myId, onSaved, onSent }:
     }));
     if (sent) { dismiss(); onSent(sent); }
   };
-  return <aside aria-label="채팅 장소 제안" aria-live="polite" className="relative mt-2 shrink-0 rounded-2xl border border-ink/10 bg-sun-pale p-3 text-[13px]">
+  return <aside aria-label="채팅 장소 제안" aria-live="polite" className="relative mt-2 shrink-0 rounded-2xl border border-ink/10 bg-sun-pale p-3 text-[0.8125rem]">
     <button type="button" aria-label="장소 제안 닫기" disabled={busy} onClick={dismiss} className="absolute right-1 top-1 grid h-8 w-8 place-items-center text-lg">×</button>
     <p className="pr-7 font-semibold">{name}</p>
     <p className="pr-7 text-xs text-mute-dark">{place.address}</p>
@@ -122,8 +143,12 @@ export default function ChatPlaceCard({ room, messages, myId, onSaved, onSent }:
       <p className="mt-2">목적지를 {name}로 바꾸면 경로·요금이 다시 계산되고 모두 다시 확정해야 해요</p>
       <div className="mt-2 flex gap-2"><button type="button" disabled={busy} onClick={() => void apply(true)} className="flex-1 rounded-xl bg-ink px-3 py-2 text-white">목적지 변경 확정</button><button type="button" disabled={busy} onClick={() => setConfirm(false)} className="rounded-xl bg-white px-3 py-2">돌아가기</button></div>
     </> : <>
-      <p className="mt-2">만날 장소나 목적지로 바꿀까요?</p>
-      <div className="mt-2 flex gap-2"><button type="button" aria-label={`만날 장소를 ${name}로 바꿀까요?`} disabled={busy} onClick={() => void apply(false)} className="flex-1 rounded-xl bg-ink px-3 py-2 text-white">만날 장소로</button><button type="button" aria-label={`목적지를 ${name}로 바꿀까요?`} disabled={busy} onClick={() => setConfirm(true)} className="flex-1 rounded-xl bg-white px-3 py-2">목적지로</button></div>
+      <p className="mt-2">{suggestion.intent === 'destination' ? '목적지로 바꿀까요?' : suggestion.intent === 'meeting' ? '만날 장소로 바꿀까요?' : '만날 장소나 목적지로 바꿀까요?'}</p>
+      {/* The sentence's intent (“목적지를 …로”) decides which choice is the primary (black) button. */}
+      <div className={`mt-2 flex gap-2 ${suggestion.intent === 'destination' ? 'flex-row-reverse' : ''}`}>
+        <button type="button" aria-label={`만날 장소를 ${name}로 바꿀까요?`} disabled={busy} onClick={() => void apply(false)} className={`flex-1 rounded-xl px-3 py-2 ${suggestion.intent === 'destination' ? 'bg-white' : 'bg-ink text-white'}`}>만날 장소로</button>
+        <button type="button" aria-label={`목적지를 ${name}로 바꿀까요?`} disabled={busy} onClick={() => setConfirm(true)} className={`flex-1 rounded-xl px-3 py-2 ${suggestion.intent === 'destination' ? 'bg-ink text-white' : 'bg-white'}`}>목적지로</button>
+      </div>
     </> : <button type="button" disabled={busy} onClick={() => void propose()} className="mt-2 w-full rounded-xl bg-ink px-3 py-2 text-white">방장에게 제안하기</button>}
   </aside>;
 }

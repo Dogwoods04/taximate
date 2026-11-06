@@ -285,7 +285,7 @@ const SchematicCanvas = forwardRef<InnerHandle, InnerProps>(function SchematicCa
         const near = (q: { x: number; y: number }, dx: number, dy: number) => Math.abs(q.x - p.x) < dx && p.y > q.y - dy && p.y < q.y + 18;
         if (markers.some(m => near(toScreen(m.position), m.label ? 110 : 44, m.label ? 66 : 28))) return null;
         if (layers.bubble && near(toScreen(layers.bubble.position), 70, 46)) return null;
-        return <span key={name} className="pointer-events-none absolute -translate-x-1/2 text-[11px] font-semibold text-[#9C9C9C]" style={{ left: p.x, top: p.y }}>{name}</span>;
+        return <span key={name} className="pointer-events-none absolute -translate-x-1/2 text-[0.6875rem] font-semibold text-[#9C9C9C]" style={{ left: p.x, top: p.y }}>{name}</span>;
       })}
       {w > 0 && (layers.markers ?? []).map((m, i) => {
         const p = toScreen(m.position);

@@ -46,7 +46,9 @@ export function pathMidpoint(path: LatLng[]): LatLng {
 }
 
 /** Shared map layers for a room's preview route (used here after join and by On-the-way). */
-export function roomLayers(room: { approxOrigin: LatLng; approxDestination: LatLng; meetingPoint: { location: LatLng; name: string } | null; originName?: string | null; destinationName?: string | null }, path: LatLng[], extra: MapMarker[] = [], durationMin?: number): MapLayers {
+/** Room map: pickup/destination markers, the room's route and a "N분 예상" bubble from the host route, for
+ *  every viewer (`durationMin` is only a fallback for rooms without route info). */
+export function roomLayers(room: { approxOrigin: LatLng; approxDestination: LatLng; meetingPoint: { location: LatLng; name: string } | null; originName?: string | null; destinationName?: string | null; routeDistanceMeters?: number | null; routeDurationSeconds?: number | null }, path: LatLng[], extra: MapMarker[] = [], durationMin?: number): MapLayers {
   const markers: MapMarker[] = [
     room.meetingPoint
       ? { position: room.meetingPoint.location, kind: 'pickup', label: room.meetingPoint.name }
@@ -57,7 +59,9 @@ export function roomLayers(room: { approxOrigin: LatLng; approxDestination: LatL
   return {
     markers,
     polylines: path.length > 1 ? [{ path }] : [],
-    bubble: durationMin ? { position: path.length ? pathMidpoint(path) : room.approxOrigin, title: `${durationMin}분`, sub: '예상' } : null,
+    bubble: room.routeDurationSeconds != null
+      ? { position: path.length ? pathMidpoint(path) : room.approxOrigin, title: `${minutesOf(room.routeDurationSeconds)}분`, sub: '예상' }
+      : durationMin ? { position: path.length ? pathMidpoint(path) : room.approxOrigin, title: `${durationMin}분`, sub: '예상' } : null,
   };
 }
 export const roomPoints = (room: { approxOrigin: LatLng; approxDestination: LatLng; meetingPoint: { location: LatLng } | null }, path: LatLng[]) =>
@@ -416,7 +420,7 @@ function Fields({ origin, destination, active, onActivate, onSwap, disabled }: {
         onPointerDown={e => { if (active) e.preventDefault(); }}
         className={`flex h-[52px] w-full items-center gap-4 text-left ${active === field ? 'opacity-100' : ''}`}>
         <ArrowIcon size={22} className={`-scale-x-100 shrink-0 ${isOrigin ? 'text-[#BDBDBD]' : 'text-ink'}`} />
-        <span className={`truncate text-[17px] ${place ? (isOrigin ? 'text-mute-dark' : 'font-medium text-ink') : 'text-mute'} ${active === field ? 'font-semibold text-ink' : ''}`}>
+        <span className={`truncate text-[1.0625rem] ${place ? (isOrigin ? 'text-mute-dark' : 'font-medium text-ink') : 'text-mute'} ${active === field ? 'font-semibold text-ink' : ''}`}>
           {place?.name ?? (isOrigin ? '출발지 검색' : '도착지 검색')}
         </span>
       </button>
@@ -474,7 +478,7 @@ function PlaceResults({ field, bias, onChoose, onBlur }: { field: Field; bias?: 
         <SearchIcon size={20} className="text-mute" />
         <input ref={input} value={query} onBlur={onBlur} onChange={e => setQuery(e.target.value)} enterKeyHint="search"
           placeholder={field === 'origin' ? '어디서 출발하세요? (예: 정왕역)' : '어디로 가세요? (예: 시흥시청)'}
-          className="min-w-0 flex-1 bg-transparent text-[17px] outline-none placeholder:text-mute" />
+          className="min-w-0 flex-1 bg-transparent text-[1.0625rem] outline-none placeholder:text-mute" />
         {query && <button type="button" onPointerDown={e => e.preventDefault()} onClick={() => setQuery('')} aria-label="지우기" className="text-mute"><CloseIcon size={18} /></button>}
       </label>
       <div className="mt-2 min-h-0 flex-1 overflow-y-auto">
@@ -487,8 +491,8 @@ function PlaceResults({ field, bias, onChoose, onBlur }: { field: Field; bias?: 
               <button type="button" onClick={() => onChoose(p)} className="flex w-full items-center gap-4 py-4 text-left transition active:bg-fog-soft">
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-fog"><ArrowIcon size={16} className="-scale-x-100" /></span>
                 <span className="min-w-0">
-                  <span className="block truncate text-[16px] font-semibold">{p.name ?? '이름 없는 장소'}</span>
-                  {p.address && <span className="block truncate text-[13px] text-mute">{p.address}</span>}
+                  <span className="block truncate text-[1rem] font-semibold">{p.name ?? '이름 없는 장소'}</span>
+                  {p.address && <span className="block truncate text-[0.8125rem] text-mute">{p.address}</span>}
                 </span>
               </button>
             </li>
@@ -505,10 +509,10 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
   phase: Phase; result: MatchCandidatesResponse | null; selectedId: string | null; strip: RefObject<HTMLDivElement>; departureText: string;
   onOpen(c: MatchCandidate): void; onRefresh(): void; onRetryRoute(): void; onCreate(): void;
 }) {
-  const body = 'mt-5 flex min-h-[190px] flex-1 shrink-0 flex-col';
+  const body = 'mt-5 flex min-h-[11.875rem] flex-1 shrink-0 flex-col';
   if (phase === 'idle') {
     return (
-      <p className="mt-5 flex shrink-0 items-start gap-2.5 rounded-2xl bg-fog-soft px-4 py-3 text-[13.5px] leading-snug text-mute-dark">
+      <p className="mt-5 flex shrink-0 items-start gap-2.5 rounded-2xl bg-fog-soft px-4 py-3 text-[0.8438rem] leading-snug text-mute-dark">
         <BulbIcon size={18} className="mt-px shrink-0 text-sun-deep" />
         <span>출발지와 도착지를 검색하면 비슷한 동선의 방을 찾아드려요</span>
       </p>
@@ -530,7 +534,7 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
   return (
     <div className={body}>
       <div className="flex items-center justify-between">
-        <h3 className="text-[19px] font-bold tracking-tight">{candidates.length ? '비슷한 동선이 있어요' : '아직 비슷한 동선의 방이 없어요'}</h3>
+        <h3 className="text-[1.1875rem] font-bold tracking-tight">{candidates.length ? '비슷한 동선이 있어요' : '아직 비슷한 동선의 방이 없어요'}</h3>
         <div className="flex items-center gap-1">
           <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-fog text-ink transition active:rotate-180" onClick={onRefresh} aria-label="다시 찾기"><RefreshIcon size={18} /></button>
         </div>
@@ -541,7 +545,7 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
         </div>
       ) : (
         <div className="mt-3 flex flex-1 flex-col justify-center rounded-card bg-fog-soft px-6 py-5">
-          <p className="text-[15px] leading-relaxed text-mute-dark">
+          <p className="text-[0.9375rem] leading-relaxed text-mute-dark">
             {result && result.similarSearchingCount > 0
               ? <>지금 비슷한 동선으로 <b className="text-ink">{result.similarSearchingCount}명</b>이 함께 갈 사람을 찾고 있어요. 방을 열면 그분들이 바로 찾을 수 있어요.</>
               : '먼저 방을 열어 두면 같은 방향의 이웃이 찾아올 수 있어요.'}
@@ -559,16 +563,16 @@ function CandidateCard({ c, selected, onOpen }: { c: MatchCandidate; selected: b
     <button type="button" onClick={onOpen}
       className={`relative w-[72%] shrink-0 snap-start overflow-hidden rounded-card border bg-white text-left transition active:scale-[.98] ${selected ? 'border-ink' : 'border-line'}`}>
       <div className={`mr-[10%] rounded-br-card pb-3 pl-5 pr-4 pt-3.5 ${near ? 'bg-sun' : 'bg-fog'}`}>
-        <div className="text-[12px] font-semibold text-ink/60">{near ? '가까운 방 · 200m 이내' : '조금 더 넓게 · 500m 이내'}</div>
+        <div className="text-[0.75rem] font-semibold text-ink/60">{near ? '가까운 방 · 200m 이내' : '조금 더 넓게 · 500m 이내'}</div>
         <GenderChip enabled={c.room.sameGenderOnly} />
         <CardTags tags={shortTags(c)} />
       </div>
       <div className="px-5 pb-4 pt-3">
         <div className="flex items-baseline justify-between gap-3">
-          <span className="truncate text-[18px] font-bold tracking-tight">{destinationTitle(c.room)}</span>
-          <span className="shrink-0 text-[17px] font-bold">{fare != null ? formatWon(fare) : '-'}</span>
+          <span className="truncate text-[1.125rem] font-bold tracking-tight">{destinationTitle(c.room)}</span>
+          <span className="shrink-0 text-[1.0625rem] font-bold">{fare != null ? formatWon(fare) : '-'}</span>
         </div>
-        <div className="mt-1 flex items-center gap-2.5 whitespace-nowrap text-[15px] text-mute">
+        <div className="mt-1 flex items-center gap-2.5 whitespace-nowrap text-[0.9375rem] text-mute">
           <span className="min-w-0 truncate">{formatDiff(c.departureDiffMinutes).replace(/\s*출발$/, '')}</span>
           <span className="flex shrink-0 items-center gap-1"><PersonIcon size={15} /> {riders(c.room)}/{c.room.capacity}</span>
           <span className="shrink-0 font-semibold text-ink">빈 자리 {c.seatsLeft}</span>
@@ -627,10 +631,10 @@ function CardTags({ tags }: { tags: string[] }) {
     <div ref={rowRef} className="relative mt-2 flex gap-1 overflow-hidden">
       {/* invisible copies used only for measuring natural widths */}
       <div aria-hidden className="pointer-events-none invisible absolute left-0 top-0 flex gap-1">
-        {tags.map(t => <span key={t} data-measure className="chip px-2 text-[11.5px]">{t}</span>)}
+        {tags.map(t => <span key={t} data-measure className="chip px-2 text-[0.7188rem]">{t}</span>)}
       </div>
-      {tags.slice(0, visible).map(t => <span key={t} className="chip bg-white/80 px-2 text-[11.5px] text-ink">{t}</span>)}
-      {hidden > 0 && <span className="chip bg-ink px-2 text-[11.5px] text-white" aria-label={`태그 ${hidden}개 더`}>+{hidden}</span>}
+      {tags.slice(0, visible).map(t => <span key={t} className="chip bg-white/80 px-2 text-[0.7188rem] text-ink">{t}</span>)}
+      {hidden > 0 && <span className="chip bg-ink px-2 text-[0.7188rem] text-white" aria-label={`태그 ${hidden}개 더`}>+{hidden}</span>}
     </div>
   );
 }
@@ -640,10 +644,10 @@ function ConditionRow({ departureText, passengers, onChange }: { departureText: 
   return (
     <div className="mt-4 flex h-[60px] shrink-0 items-center gap-3 rounded-card border border-line px-4">
       <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-sun text-ink"><ClockIcon size={16} /></span>
-      <span className="min-w-0 flex-1 truncate text-[15px] font-medium">
+      <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium">
         {departureText === '지금' ? '지금 출발' : `${departureText} 출발`} · {passengers}명
       </span>
-      <button type="button" onClick={onChange} className="shrink-0 text-[15px] font-semibold text-mute">변경</button>
+      <button type="button" onClick={onChange} className="shrink-0 text-[0.9375rem] font-semibold text-mute">변경</button>
     </div>
   );
 }
@@ -663,35 +667,35 @@ function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: T
     <div className="mt-6 flex min-h-0 flex-1 flex-col">
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between">
-          <h3 className="text-[19px] font-bold tracking-tight">방 소개를 적어 주세요</h3>
+          <h3 className="text-[1.1875rem] font-bold tracking-tight">방 소개를 적어 주세요</h3>
           <button type="button" className="btn-text" onClick={onCancel}>목록</button>
         </div>
         <PlaceNameHint className="mt-3">출발지·목적지는 역, 공공기관, 건물처럼 누구나 아는 장소로 정해 주세요. 이 이름과 예상 경로가 방 목록에 그대로 보여요. 집 주소 대신 가까운 공공장소를 고르면 더 안전해요.</PlaceNameHint>
         <div className="relative mt-3">
           <textarea value={note} maxLength={200} onChange={e => setNote(e.target.value)} rows={3}
             placeholder="예: 정왕역 2번 출구 앞에서 만나요. 짐은 작은 가방 하나예요."
-            className="field min-h-[96px] resize-none pb-7 leading-relaxed" />
+            className="field min-h-[6rem] resize-none pb-7 leading-relaxed" />
           <span className="pointer-events-none absolute bottom-2.5 right-4 text-xs text-mute">{note.length}/200</span>
         </div>
         <div className="mt-2"><Toggle checked={luggage} onChange={setLuggage} label="큰 짐(캐리어 등) 괜찮아요" /></div>
         <div className="mt-2 rounded-card border border-line px-4 py-3">
           <Toggle checked={eligible && sameGenderOnly} disabled={!eligible} onChange={setSameGenderOnly} label="같은 성별만" />
-          {!eligible && <p className="mt-2 text-[13px] leading-relaxed text-mute">성별을 선택하지 않으면 이 방을 만들거나 찾고 참여할 수 없어요. 메뉴의 내 정보에서 변경할 수 있어요.</p>}
+          {!eligible && <p className="mt-2 text-[0.8125rem] leading-relaxed text-mute">성별을 선택하지 않으면 이 방을 만들거나 찾고 참여할 수 없어요. 메뉴의 내 정보에서 변경할 수 있어요.</p>}
         </div>
         <div className="mt-2 rounded-card border border-line px-4 py-3">
-          <div className="flex items-center gap-3 text-[15px]">
+          <div className="flex items-center gap-3 text-[0.9375rem]">
             <PersonIcon size={20} className="shrink-0 text-mute" />
             <span className="flex-1 font-medium">나 포함 같이 타는 인원</span>
             <div className="flex rounded-full bg-fog p-1" role="radiogroup" aria-label="나 포함 같이 타는 인원">
               {Array.from({ length: CAPACITY - 1 }, (_, i) => i + 1).map(n => (
                 <button key={n} type="button" role="radio" aria-checked={party === n} onClick={() => setParty(n)}
-                  className={`h-9 min-w-[52px] rounded-full px-3 text-[15px] font-semibold transition ${party === n ? 'bg-ink text-white' : 'text-mute-dark'}`}>{n}명</button>
+                  className={`h-9 min-w-[3.25rem] rounded-full px-3 text-[0.9375rem] font-semibold transition ${party === n ? 'bg-ink text-white' : 'text-mute-dark'}`}>{n}명</button>
               ))}
             </div>
           </div>
-          <p className="mt-2 pl-8 text-[13px] text-mute">정원 {CAPACITY}명(앞 1 · 뒤 2) 중 {CAPACITY - party}자리를 함께 탈 이웃에게 열어요 · {departureText} 출발</p>
+          <p className="mt-2 pl-8 text-[0.8125rem] text-mute">정원 {CAPACITY}명(앞 1 · 뒤 2) 중 {CAPACITY - party}자리를 함께 탈 이웃에게 열어요 · {departureText} 출발</p>
         </div>
-        <p className="mt-3 text-[13px] leading-relaxed text-mute">
+        <p className="mt-3 text-[0.8125rem] leading-relaxed text-mute">
           요금은 똑같이 나눠요{fare != null && <> · 예상 총 {formatWon(fare)} (다 차면 1인 {formatWon(perPersonFare(fare, CAPACITY)!)})</>}. 출발 {formatTime(trip.desiredDepartureAt)}.
         </p>
       </div>
@@ -718,15 +722,15 @@ function RoomIntro({ candidate, trip, busy, onBack, onJoin }: { candidate: Match
         <span className={`chip ${candidate.tier === 'NEAR' ? 'bg-sun text-ink' : ''}`}>{candidate.tier === 'NEAR' ? '200m 이내' : '200–500m'}</span>
       </div>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-4">
-        <p className="text-[15px] text-mute">{originTitle(r)}에서</p>
-        <h2 className="mt-1 text-[30px] font-bold leading-tight tracking-[-0.03em]">{destinationTitle(r)}</h2>
+        <p className="text-[0.9375rem] text-mute">{originTitle(r)}에서</p>
+        <h2 className="mt-1 text-[1.875rem] font-bold leading-tight tracking-[-0.03em]">{destinationTitle(r)}</h2>
         <GenderChip enabled={r.sameGenderOnly} />
         <div className="no-scrollbar mt-4 flex gap-1.5 overflow-x-auto">
           {candidate.reasons.map(x => <span key={x} className="chip">{x}</span>)}
           <span className="chip">{formatDiff(candidate.departureDiffMinutes)}</span>
         </div>
 
-        <blockquote className="mt-6 rounded-card bg-fog-soft px-5 py-4 text-[16px] leading-relaxed">
+        <blockquote className="mt-6 rounded-card bg-fog-soft px-5 py-4 text-[1rem] leading-relaxed">
           {r.terms.note ? `“${r.terms.note}”` : <span className="text-mute">방장이 소개를 남기지 않았어요.</span>}
         </blockquote>
 
@@ -759,7 +763,7 @@ function roomDestination(r: RoomSummary): PlaceRef {
 /** Bulb + short guidance (same look as the idle hint). */
 function PlaceNameHint({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <p className={`flex shrink-0 items-start gap-2.5 rounded-2xl bg-fog-soft px-4 py-3 text-[13.5px] leading-snug text-mute-dark ${className}`}>
+    <p className={`flex shrink-0 items-start gap-2.5 rounded-2xl bg-fog-soft px-4 py-3 text-[0.8438rem] leading-snug text-mute-dark ${className}`}>
       <BulbIcon size={18} className="mt-px shrink-0 text-sun-deep" />
       <span>{children}</span>
     </p>
@@ -791,24 +795,24 @@ function RoomPreview({ room: summary, detail, walk, busy, onClose, onGo, onCance
     return (
       <div className="flex min-h-0 flex-1 flex-col px-6 pb-[max(20px,env(safe-area-inset-bottom))] pt-3">
         <button type="button" onClick={onCancelWalk} className="btn-text -ml-1 self-start"><ChevronLeftIcon size={18} /> 방 정보</button>
-        <h3 className="mt-4 text-[22px] font-bold tracking-tight">출발지까지 갈 만한 거리인가요?</h3>
+        <h3 className="mt-4 text-[1.375rem] font-bold tracking-tight">출발지까지 갈 만한 거리인가요?</h3>
         <div className="mt-4 flex flex-col gap-3 rounded-card border border-line px-4 py-4">
           <div className="flex items-center gap-3">
             <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-white shadow"><span className="h-3 w-3 rounded-full bg-sun-deep" /></span>
-            <p className="text-[15px] text-mute-dark">내 위치</p>
+            <p className="text-[0.9375rem] text-mute-dark">내 위치</p>
           </div>
           <div className="flex items-center gap-3">
             <span className="grid h-5 w-5 shrink-0 place-items-center rounded-[6px] bg-[#4F46E5]"><span className="h-1.5 w-1.5 rounded-sm bg-white" /></span>
-            <p className="min-w-0 truncate text-[16px] font-semibold">{pickupName}</p>
+            <p className="min-w-0 truncate text-[1rem] font-semibold">{pickupName}</p>
           </div>
         </div>
         <div className="mt-4 rounded-card bg-fog-soft px-5 py-4">
           {walk.state === 'locating' ? <Spinner text="걷는 길을 찾는 중…" />
-            : walk.state === 'nogps' ? <p className="text-[15px] text-mute-dark">현재 위치를 확인할 수 없어요. 지도에서 출발지를 확인한 뒤 참여해 주세요.</p>
+            : walk.state === 'nogps' ? <p className="text-[0.9375rem] text-mute-dark">현재 위치를 확인할 수 없어요. 지도에서 출발지를 확인한 뒤 참여해 주세요.</p>
               : (
                 <>
-                  <p className="text-[28px] font-bold tracking-tight">{formatDistance(meters!)} <span className="text-[17px] font-semibold text-mute-dark">· 걸어서 약 {walkMin}분</span></p>
-                  <p className="mt-1 text-[13px] text-mute">출발 {formatClock(r.departureAt)}까지 이곳으로 와 주세요.{meters! > 1500 && ' 걸어가기엔 조금 멀어요.'}{estimated && ' (직선거리로 어림한 값이에요)'}</p>
+                  <p className="text-[1.75rem] font-bold tracking-tight">{formatDistance(meters!)} <span className="text-[1.0625rem] font-semibold text-mute-dark">· 걸어서 약 {walkMin}분</span></p>
+                  <p className="mt-1 text-[0.8125rem] text-mute">출발 {formatClock(r.departureAt)}까지 이곳으로 와 주세요.{meters! > 1500 && ' 걸어가기엔 조금 멀어요.'}{estimated && ' (직선거리로 어림한 값이에요)'}</p>
                 </>
               )}
         </div>
@@ -834,21 +838,21 @@ function RoomPreview({ room: summary, detail, walk, busy, onClose, onGo, onCance
           <div className="absolute bottom-[34px] left-[26px] top-[34px] border-l-2 border-dotted border-[#C8C8C8]" />
           <div className="flex items-center gap-3">
             <span className="grid h-5 w-5 shrink-0 place-items-center rounded-[6px] bg-[#4F46E5]"><span className="h-1.5 w-1.5 rounded-sm bg-white" /></span>
-            <div className="min-w-0"><p className="text-[12px] text-mute">출발</p><p className="truncate text-[17px] font-semibold">{originTitle(r)}</p></div>
+            <div className="min-w-0"><p className="text-[0.75rem] text-mute">출발</p><p className="truncate text-[1.0625rem] font-semibold">{originTitle(r)}</p></div>
           </div>
           <div className="flex items-center gap-3">
             <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink"><span className="h-2 w-2 rounded-full bg-sun" /></span>
-            <div className="min-w-0"><p className="text-[12px] text-mute">도착</p><p className="truncate text-[17px] font-semibold">{destinationTitle(r)}</p></div>
+            <div className="min-w-0"><p className="text-[0.75rem] text-mute">도착</p><p className="truncate text-[1.0625rem] font-semibold">{destinationTitle(r)}</p></div>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-          <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[12px] text-mute">출발</p><p className="mt-0.5 text-[15px] font-semibold">{formatClock(r.departureAt)}</p></div>
-          <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[12px] text-mute">인원</p><p className="mt-0.5 text-[15px] font-semibold">{riders(r)}/{r.capacity}명</p></div>
-          <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[12px] text-mute">1인 예상</p><p className="mt-0.5 whitespace-nowrap text-[14px] font-semibold tracking-tight">{fareRange}</p></div>
+          <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[0.75rem] text-mute">출발</p><p className="mt-0.5 text-[0.9375rem] font-semibold">{formatClock(r.departureAt)}</p></div>
+          <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[0.75rem] text-mute">인원</p><p className="mt-0.5 text-[0.9375rem] font-semibold">{riders(r)}/{r.capacity}명</p></div>
+          <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[0.75rem] text-mute">1인 예상</p><p className="mt-0.5 whitespace-nowrap text-[0.875rem] font-semibold tracking-tight">{fareRange}</p></div>
         </div>
-        <p className="mt-2 text-center text-[12px] text-mute">1인 요금은 함께 타는 인원에 따라 달라져요</p>
+        <p className="mt-2 text-center text-[0.75rem] text-mute">1인 요금은 함께 타는 인원에 따라 달라져요</p>
 
-        <blockquote className="mt-5 rounded-card bg-fog-soft px-5 py-4 text-[15px] leading-relaxed">
+        <blockquote className="mt-5 rounded-card bg-fog-soft px-5 py-4 text-[0.9375rem] leading-relaxed">
           {r.terms.note ? `“${r.terms.note}”` : <span className="text-mute">방장이 소개를 남기지 않았어요.</span>}
         </blockquote>
         <dl className="mt-3 divide-y divide-line">
@@ -870,7 +874,7 @@ function RoomPreview({ room: summary, detail, walk, busy, onClose, onGo, onCance
 
 function Info({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-3.5 text-[15px]">
+    <div className="flex items-center justify-between gap-4 py-3.5 text-[0.9375rem]">
       <dt className="shrink-0 text-mute">{label}</dt>
       <dd className="min-w-0 text-right font-medium">{children}</dd>
     </div>

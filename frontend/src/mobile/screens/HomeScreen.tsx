@@ -10,6 +10,7 @@ import { useMap } from '../components/map/MapLayout';
 import type { MapMarker } from '../components/map/markers';
 import { ArrowIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, LocateIcon, MenuIcon, PersonIcon } from '../components/icons';
 import { FramePortal, Sheet, useSlideIn } from '../components/ui';
+import { DateTimePicker, formatLocalChoice, roundUp5 } from '../components/DateTimePicker';
 import SelectSheet from './SelectSheet';
 
 export type DepartureChoice = { kind: 'now' } | { kind: 'plus'; minutes: 15 | 30 } | { kind: 'custom'; local: string };
@@ -136,7 +137,7 @@ export default function HomeScreen() {
 
       {gpsNotice && (
         <div className="animate-pop absolute inset-x-0 top-[max(96px,calc(env(safe-area-inset-top)+72px))] flex justify-center px-6">
-          <p className="rounded-full bg-ink px-4 py-2.5 text-[13px] font-medium text-white shadow-float">현재 위치를 확인할 수 없어 시흥시청을 중심으로 보여드려요</p>
+          <p className="rounded-full bg-ink px-4 py-2.5 text-[0.8125rem] font-medium text-white shadow-float">현재 위치를 확인할 수 없어 시흥시청을 중심으로 보여드려요</p>
         </div>
       )}
 
@@ -182,9 +183,9 @@ function WhereTo({ label, onOpen, onTime }: { label: string; onOpen(): void; onT
     <div className="flex h-[56px] items-center rounded-full border border-line bg-white pl-5 pr-1.5">
       <button type="button" onClick={onOpen} className="flex h-full flex-1 items-center gap-4 text-left">
         <ArrowIcon size={22} className="-scale-x-100" />
-        <span className="text-[17px] font-medium">어디로 갈까요?</span>
+        <span className="text-[1.0625rem] font-medium">어디로 갈까요?</span>
       </button>
-      <button type="button" onClick={onTime} aria-label={`출발 시간: ${label}`} className="flex h-[44px] items-center gap-2 rounded-full bg-fog px-4 text-[15px] font-medium text-mute-dark transition active:scale-95 [--clock-hand:#EFEFEF]">
+      <button type="button" onClick={onTime} aria-label={`출발 시간: ${label}`} className="flex h-[44px] items-center gap-2 rounded-full bg-fog px-4 text-[0.9375rem] font-medium text-mute-dark transition active:scale-95 [--clock-hand:#EFEFEF]">
         <ClockIcon size={18} className="text-mute" />
         {label}
         <ChevronDownIcon size={16} className="text-mute" />
@@ -194,7 +195,7 @@ function WhereTo({ label, onOpen, onTime }: { label: string; onOpen(): void; onT
 }
 
 function RoomCards({ rooms, here, onPick }: { rooms: RoomSummary[] | null; here: LatLng | null; onPick(r: RoomSummary): void }) {
-  const card = 'min-h-[188px] w-[calc((100%-16px)/2)] shrink-0 snap-start rounded-card';
+  const card = 'min-h-[11.75rem] w-[calc((100%-16px)/2)] shrink-0 snap-start rounded-card';
   if (!rooms) {
     return (
       <div className="mt-5 flex gap-4" aria-label="불러오는 중">
@@ -206,7 +207,7 @@ function RoomCards({ rooms, here, onPick }: { rooms: RoomSummary[] | null; here:
   if (!rooms.length) {
     return (
       <div className="mt-5 flex h-[150px] flex-col justify-center rounded-card border border-dashed border-line bg-fog-soft px-6">
-        <p className="text-[17px] font-semibold">근처에 열린 방이 아직 없어요</p>
+        <p className="text-[1.0625rem] font-semibold">근처에 열린 방이 아직 없어요</p>
         <p className="mt-1.5 text-sm leading-relaxed text-mute">어디로 갈지 검색하고, 같은 방향 이웃이 찾을 수 있게 첫 방을 열어 보세요.</p>
       </div>
     );
@@ -219,9 +220,9 @@ function RoomCards({ rooms, here, onPick }: { rooms: RoomSummary[] | null; here:
           <button key={r.id} type="button" onClick={() => onPick(r)}
             className={`${card} flex flex-col p-5 text-left transition active:scale-[.98] ${yellow ? 'bg-sun' : 'border border-line bg-white'}`}>
             <GenderChip enabled={r.sameGenderOnly} />
-            <span className="line-clamp-2 text-[18px] font-bold leading-snug tracking-tight">{destinationTitle(r)}</span>
-            <span className={`mt-1.5 text-[15px] ${yellow ? 'text-ink/80' : 'text-mute'}`}>{formatDepartureRelative(r.departureAt)}</span>
-            <span className={`mt-0.5 flex min-w-0 items-baseline gap-1.5 text-[13px] ${yellow ? 'text-ink/70' : 'text-mute'}`}><span aria-label="출발" className="h-2 w-2 shrink-0 self-center rounded-[2px] bg-[#4F46E5]" /><span className="min-w-0 truncate">{originTitle(r)}</span>{here && <span className="shrink-0 font-semibold">{formatDistance(Math.round(distanceMeters(here, r.approxOrigin) / 10) * 10)}</span>}</span>
+            <span className="line-clamp-2 text-[1.125rem] font-bold leading-snug tracking-tight">{destinationTitle(r)}</span>
+            <span className={`mt-1.5 text-[0.9375rem] ${yellow ? 'text-ink/80' : 'text-mute'}`}>{formatDepartureRelative(r.departureAt)}</span>
+            <span className={`mt-0.5 flex min-w-0 items-baseline gap-1.5 text-[0.8125rem] ${yellow ? 'text-ink/70' : 'text-mute'}`}><span aria-label="출발" className="h-2 w-2 shrink-0 self-center rounded-[2px] bg-[#4F46E5]" /><span className="min-w-0 truncate">{originTitle(r)}</span>{here && <span className="shrink-0 font-semibold">{formatDistance(Math.round(distanceMeters(here, r.approxOrigin) / 10) * 10)}</span>}</span>
             <span className="mt-auto flex items-center justify-between">
               <span className={`flex items-center gap-1.5 text-sm font-semibold ${yellow ? 'text-ink' : 'text-mute-dark'}`}><PersonIcon size={16} /> 빈 자리 {r.seatsLeft}</span>
               <span className={`grid h-8 w-8 place-items-center rounded-full ${yellow ? 'bg-ink text-sun' : 'bg-fog text-ink'}`}><ChevronRightIcon size={16} /></span>
@@ -244,8 +245,8 @@ function MyRoomBar({ room, onOpen }: { room: RoomSummary | null | undefined; onO
           {has && <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-ink bg-sun" />}
         </span>
         <span className="min-w-0 flex-1">
-          <span className={`block text-[22px] font-semibold tracking-tight ${has ? 'text-white' : 'text-white/40'}`}>현재 내 방</span>
-          <span className="block truncate text-[13px] text-white/50">
+          <span className={`block text-[1.375rem] font-semibold tracking-tight ${has ? 'text-white' : 'text-white/40'}`}>현재 내 방</span>
+          <span className="block truncate text-[0.8125rem] text-white/50">
             {room === undefined ? '확인 중…' : room ? `${destinationTitle(room)} · ${formatDepartureRelative(room.departureAt)}` : '참여 중인 방이 없어요'}
           </span>
         </span>
@@ -256,7 +257,11 @@ function MyRoomBar({ room, onOpen }: { room: RoomSummary | null | undefined; onO
 }
 
 function DeparturePicker({ value, onChange, onClose }: { value: DepartureChoice; onChange(v: DepartureChoice): void; onClose(): void }) {
-  const [custom, setCustom] = useState(() => value.kind === 'custom' ? value.local : toLocalInput(new Date(Date.now() + 60 * 60000)));
+  const [custom, setCustom] = useState(() => value.kind === 'custom' ? value.local : toLocalInput(roundUp5(new Date(Date.now() + 60 * 60000))));
+  const [picking, setPicking] = useState(false);
+  const customAt = new Date(custom).getTime();
+  const tooEarly = !Number.isNaN(customAt) && customAt < Date.now() - 60000;
+  const tooLate = !Number.isNaN(customAt) && customAt > Date.now() + 7 * 86400000;
   const options: { label: string; sub: string; value: DepartureChoice }[] = [
     { label: '지금', sub: '바로 출발할 동행 찾기', value: { kind: 'now' } },
     { label: '15분 후', sub: formatClock(new Date(Date.now() + 15 * 60000).toISOString()), value: { kind: 'plus', minutes: 15 } },
@@ -265,24 +270,41 @@ function DeparturePicker({ value, onChange, onClose }: { value: DepartureChoice;
   const same = (a: DepartureChoice, b: DepartureChoice) => a.kind === b.kind && (a.kind !== 'plus' || (b.kind === 'plus' && a.minutes === b.minutes));
   return (
     <Sheet title="언제 출발하세요?" onClose={onClose}>
+      {picking ? (
+        <div>
+          <button type="button" className="btn-text mb-3" onClick={() => setPicking(false)}>
+            <ChevronRightIcon size={16} className="rotate-180" /> 빠른 선택
+          </button>
+          <div className="rounded-2xl bg-fog-soft px-3 pb-3 pt-2">
+            <DateTimePicker value={custom} onChange={setCustom} min={new Date()} max={new Date(Date.now() + 7 * 86400000)} />
+          </div>
+          <p className={`mt-3 text-center text-sm ${tooEarly || tooLate ? 'font-semibold text-[#D93636]' : 'text-mute'}`}>
+            {tooEarly ? '이미 지난 시간이에요' : tooLate ? '7일 이내로 골라 주세요' : '7일 이내, 5분 단위로 고를 수 있어요'}
+          </p>
+          <button type="button" className="btn-ink mt-3 w-full" disabled={Number.isNaN(customAt) || tooEarly || tooLate}
+            onClick={() => { onChange({ kind: 'custom', local: custom }); onClose(); }}>
+            {formatLocalChoice(custom)} 출발
+          </button>
+        </div>
+      ) : (
       <div className="space-y-2">
         {options.map(o => (
           <button key={o.label} type="button" onClick={() => { onChange(o.value); onClose(); }}
             className={`flex w-full items-center justify-between rounded-2xl px-5 py-4 text-left transition ${same(o.value, value) ? 'bg-ink text-white' : 'bg-fog-soft'}`}>
-            <span className="text-[17px] font-semibold">{o.label}</span>
+            <span className="text-[1.0625rem] font-semibold">{o.label}</span>
             <span className={`text-sm ${same(o.value, value) ? 'text-sun' : 'text-mute'}`}>{o.sub}</span>
           </button>
         ))}
-        <div className={`rounded-2xl px-5 py-4 ${value.kind === 'custom' ? 'bg-ink text-white' : 'bg-fog-soft'}`}>
-          <div className="text-[17px] font-semibold">직접 선택</div>
-          <div className="mt-3 flex gap-2">
-            <input type="datetime-local" value={custom} min={toLocalInput(new Date())} max={toLocalInput(new Date(Date.now() + 7 * 86400000))}
-              onChange={e => setCustom(e.target.value)} className="field flex-1 text-ink" />
-            <button type="button" className="rounded-2xl bg-sun px-4 text-[15px] font-semibold text-ink disabled:opacity-40" disabled={Number.isNaN(new Date(custom).getTime())}
-              onClick={() => { onChange({ kind: 'custom', local: custom }); onClose(); }}>확인</button>
-          </div>
-        </div>
+        <button type="button" onClick={() => setPicking(true)}
+          className={`flex w-full items-center justify-between rounded-2xl px-5 py-4 text-left transition ${value.kind === 'custom' ? 'bg-ink text-white' : 'bg-fog-soft'}`}>
+          <span className="text-[1.0625rem] font-semibold">직접 선택</span>
+          <span className={`flex items-center gap-1 text-sm ${value.kind === 'custom' ? 'text-sun' : 'text-mute'}`}>
+            {value.kind === 'custom' ? formatLocalChoice(value.local) : '날짜·시간 고르기'}
+            <ChevronRightIcon size={16} />
+          </span>
+        </button>
       </div>
+      )}
     </Sheet>
   );
 }
@@ -298,18 +320,18 @@ function Menu({ onClose }: { onClose(): void }) {
     <FramePortal>
       <div className={`absolute inset-0 z-50 bg-black/40 transition-opacity duration-300 ${shown ? 'opacity-100' : 'opacity-0'}`} onClick={close}>
         <nav aria-label="메뉴" onClick={e => e.stopPropagation()}
-          className={`ease-sheet absolute inset-y-0 left-0 flex w-[82%] max-w-[360px] flex-col rounded-r-sheet bg-white px-7 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(40px,env(safe-area-inset-top))] shadow-sheet transition-transform duration-300 ${shown ? 'translate-x-0' : '-translate-x-full'}`}>
+          className={`ease-sheet absolute inset-y-0 left-0 flex w-[82%] max-w-[22.5rem] flex-col rounded-r-sheet bg-white px-7 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(40px,env(safe-area-inset-top))] shadow-sheet transition-transform duration-300 ${shown ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="flex items-center gap-3">
             <span className="grid h-12 w-12 place-items-center rounded-full bg-sun text-lg font-bold">{member?.nickname.slice(0, 1)}</span>
             <div className="min-w-0">
-              <div className="truncate text-[17px] font-semibold">{member?.nickname}</div>
+              <div className="truncate text-[1.0625rem] font-semibold">{member?.nickname}</div>
               <div className="text-xs text-mute">{member?.status === 'RESTRICTED' ? '이용이 제한된 계정 · 조회만 가능' : member?.role === 'ADMIN' ? '운영자' : '택시메이트 이웃'}{isMock && ' · MOCK'}</div>
             </div>
           </div>
           <ul className="mt-12 space-y-1">
             {items.map(([label, path]) => (
               <li key={path}>
-                <button type="button" onClick={() => go(path)} className="flex w-full items-center justify-between py-3 text-left text-[28px] font-bold tracking-tight transition active:opacity-50">
+                <button type="button" onClick={() => go(path)} className="flex w-full items-center justify-between py-3 text-left text-[1.75rem] font-bold tracking-tight transition active:opacity-50">
                   {label}<ChevronRightIcon className="text-line" />
                 </button>
               </li>

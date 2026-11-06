@@ -63,7 +63,7 @@ function Brand() {
   return (
     <div className="flex items-center gap-1.5">
       <ArrowIcon size={26} className="-scale-x-100 text-white" />
-      <span className="text-[26px] font-bold tracking-tight text-sun">택시메이트</span>
+      <span className="text-[1.625rem] font-bold tracking-tight text-sun">택시메이트</span>
     </div>
   );
 }
@@ -91,20 +91,20 @@ function Intro({ leaving, onStart }: { leaving: boolean; onStart(): void }) {
         <button type="button" onClick={() => setInfo(v => !v)} aria-expanded={info} aria-label="서비스 안내" className="text-sun transition active:scale-90"><InfoIcon size={26} /></button>
       </header>
       {info && (
-        <p className="animate-fade mt-4 rounded-2xl bg-white/[.06] px-4 py-3 text-[13px] leading-relaxed text-white/70">
+        <p className="animate-fade mt-4 rounded-2xl bg-white/[.06] px-4 py-3 text-[0.8125rem] leading-relaxed text-white/70">
           택시메이트는 시흥에서 비슷한 동선으로 이동하는 이웃을 찾아 택시 동승을 조율해 주는 MVP 서비스예요. 택시 호출·결제는 하지 않고, 다른 사람에게는 대략적인 위치만 보여요.
         </p>
       )}
 
       <div className="mt-[9vh] text-center">
-        <h1 {...rise(leaving, 0)} className={`${rise(leaving, 0).className} text-[40px] font-bold leading-[1.15] tracking-[-0.03em]`}>같은 방향이면,<br />함께 타요</h1>
-        <p {...rise(leaving, 90)} className={`${rise(leaving, 90).className} mt-4 text-[17px] text-white/60`}>시흥 이웃과 택시를 나눠 타는 가장 가벼운 방법</p>
+        <h1 {...rise(leaving, 0)} className={`${rise(leaving, 0).className} text-[2.5rem] font-bold leading-[1.15] tracking-[-0.03em]`}>같은 방향이면,<br />함께 타요</h1>
+        <p {...rise(leaving, 90)} className={`${rise(leaving, 90).className} mt-4 text-[1.0625rem] text-white/60`}>시흥 이웃과 택시를 나눠 타는 가장 가벼운 방법</p>
       </div>
 
       <RouteArt leaving={leaving} />
 
       <div className={`mt-auto shrink-0 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: leaving ? '60ms' : '220ms' }}>
-        <button type="button" disabled={!options.kakao || busy} className="btn w-full gap-3 text-[18px]" style={{ background: '#FEE500', color: 'rgba(0,0,0,.85)' }} onClick={kakao}>
+        <button type="button" disabled={!options.kakao || busy} className="btn w-full gap-3 text-[1.125rem]" style={{ background: '#FEE500', color: 'rgba(0,0,0,.85)' }} onClick={kakao}>
           <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C5.9 3 1 6.7 1 11.2c0 2.9 2 5.5 5 7l-1.3 4.6c-.1.4.3.6.6.4l5.4-3.6 1.3.1c6.1 0 11-3.7 11-8.3S18.1 3 12 3Z" /></svg>
           {busy ? '연결 중…' : '카카오 로그인'}
         </button>
@@ -118,7 +118,7 @@ function Intro({ leaving, onStart }: { leaving: boolean; onStart(): void }) {
 /** Decorative: the mockup's light beam, with two dotted paths merging into one route. */
 function RouteArt({ leaving }: { leaving: boolean }) {
   return (
-    <div className={`pointer-events-none relative mx-auto my-6 min-h-[140px] w-full max-w-[320px] flex-1 basis-[200px] max-h-[240px] ${leaving ? 'animate-sink' : 'animate-fade'}`} aria-hidden>
+    <div className={`pointer-events-none relative mx-auto my-6 min-h-[8.75rem] w-full max-w-[20rem] flex-1 basis-[200px] max-h-[240px] ${leaving ? 'animate-sink' : 'animate-fade'}`} aria-hidden>
       <div className="absolute inset-x-[18%] bottom-0 top-0 rounded-t-[48px] bg-gradient-to-b from-sun/40 via-sun/10 to-transparent [clip-path:polygon(18%_0,82%_0,100%_100%,0_100%)]" />
       <svg viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" className="absolute inset-0 h-full w-full">
         <path d="M60 20 C 80 90, 150 100, 160 140" fill="none" stroke="rgba(255,255,255,.45)" strokeWidth="3" strokeDasharray="2 9" strokeLinecap="round" />
@@ -162,9 +162,9 @@ function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): voi
   return (
     <form onSubmit={submit} className="flex min-h-full flex-1 flex-col px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(40px,env(safe-area-inset-top))]">
       <button type="button" onClick={onBack} aria-label="뒤로" className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-white/80 transition active:bg-white/10"><ChevronLeftIcon /></button>
-      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 short:mt-5 text-[15px] font-semibold text-sun`}>1 / 4</p>
-      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[44px] short:text-[36px] font-bold leading-[1.1] tracking-[-0.035em]`}>어떻게<br />불러드릴까요?</h1>
-      <p {...rise(leaving, 120)} className={`${rise(leaving, 120).className} mt-4 text-[17px] leading-relaxed text-white/55`}>함께 탈 이웃에게 보이는 이름이에요.</p>
+      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 short:mt-5 text-[0.9375rem] font-semibold text-sun`}>1 / 4</p>
+      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[2.75rem] short:text-[2.25rem] font-bold leading-[1.1] tracking-[-0.035em]`}>어떻게<br />불러드릴까요?</h1>
+      <p {...rise(leaving, 120)} className={`${rise(leaving, 120).className} mt-4 text-[1.0625rem] leading-relaxed text-white/55`}>함께 탈 이웃에게 보이는 이름이에요.</p>
 
       <div {...rise(leaving, 180)} className={`${rise(leaving, 180).className} mt-14`}>
         <label htmlFor="nickname" className="sr-only">사용자 이름</label>
@@ -176,9 +176,9 @@ function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): voi
           autoComplete="nickname"
           onChange={e => setNickname(e.target.value)}
           placeholder="사용자 이름"
-          className="w-full border-b-2 border-white/20 bg-transparent pb-3 text-[34px] font-semibold tracking-tight text-white caret-sun outline-none transition-colors placeholder:text-white/20 focus:border-sun"
+          className="w-full border-b-2 border-white/20 bg-transparent pb-3 text-[2.125rem] font-semibold tracking-tight text-white caret-sun outline-none transition-colors placeholder:text-white/20 focus:border-sun"
         />
-        <div className="mt-3 flex justify-between text-[13px] text-white/40">
+        <div className="mt-3 flex justify-between text-[0.8125rem] text-white/40">
           <span>{trimmed.length > 0 && trimmed.length < 2 ? '2자 이상 입력해 주세요' : '2–20자'}</span>
           <span>{trimmed.length}/20</span>
         </div>
@@ -233,16 +233,16 @@ function ConsentStep({ leaving }: { leaving: boolean }) {
       {consent
         ? <button type="button" onClick={() => navigate('/')} aria-label="뒤로" className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-white/80 transition active:bg-white/10"><ChevronLeftIcon /></button>
         : <div className="h-11" />}
-      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 short:mt-5 text-[15px] font-semibold text-sun`}>{consent ? '위치 정보 동의' : '3 / 4'}</p>
-      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[44px] short:text-[36px] font-bold leading-[1.1] tracking-[-0.035em]`}>위치는<br />필요한 순간에만.</h1>
+      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 short:mt-5 text-[0.9375rem] font-semibold text-sun`}>{consent ? '위치 정보 동의' : '3 / 4'}</p>
+      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[2.75rem] short:text-[2.25rem] font-bold leading-[1.1] tracking-[-0.035em]`}>위치는<br />필요한 순간에만.</h1>
 
       <ol className="mt-10 space-y-6 short:mt-6 short:space-y-4">
         {POINTS.map(([title, body], i) => (
           <li key={title} {...rise(leaving, 120 + i * 60)} className={`${rise(leaving, 120 + i * 60).className} flex gap-4`}>
-            <span className="mt-0.5 text-[15px] font-bold tabular-nums text-sun">0{i + 1}</span>
+            <span className="mt-0.5 text-[0.9375rem] font-bold tabular-nums text-sun">0{i + 1}</span>
             <div>
-              <div className="text-[19px] font-semibold tracking-tight">{title}</div>
-              <p className="mt-1 text-[15px] leading-relaxed text-white/55">{body}</p>
+              <div className="text-[1.1875rem] font-semibold tracking-tight">{title}</div>
+              <p className="mt-1 text-[0.9375rem] leading-relaxed text-white/55">{body}</p>
             </div>
           </li>
         ))}
@@ -251,7 +251,7 @@ function ConsentStep({ leaving }: { leaving: boolean }) {
       <div className={`mt-auto pt-10 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: '420ms' }}>
         {consent ? (
           <>
-            <p className="mb-4 text-center text-[13px] text-white/50">{formatTime(consent.agreedAt)}에 동의했어요 · 버전 {consent.policyVersion}</p>
+            <p className="mb-4 text-center text-[0.8125rem] text-white/50">{formatTime(consent.agreedAt)}에 동의했어요 · 버전 {consent.policyVersion}</p>
             <div className="flex gap-3">
               <button type="button" className="btn-sun flex-1" onClick={() => navigate('/')}>돌아가기</button>
               <button type="button" className="btn flex-none bg-white/10 text-white/80" disabled={busy} onClick={withdraw}>동의 철회</button>
@@ -326,13 +326,13 @@ function ServicesStep({ leaving }: { leaving: boolean }) {
       {agreedAt
         ? <button type="button" onClick={() => navigate('/')} aria-label="뒤로" className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-white/80 transition active:bg-white/10"><ChevronLeftIcon /></button>
         : <div className="h-11" />}
-      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 short:mt-5 text-[15px] font-semibold text-sun`}>{agreedAt ? '외부 서비스 이용' : '4 / 4'}</p>
-      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[40px] short:text-[34px] font-bold leading-[1.12] tracking-[-0.035em]`}>함께 쓰는<br />외부 서비스</h1>
-      <p {...rise(leaving, 100)} className={`${rise(leaving, 100).className} mt-4 text-[15px] leading-relaxed text-white/55`}>택시메이트는 아래 서비스를 이용해 지도와 경로를 보여 드려요. 항목마다 확인하고 체크해 주세요.</p>
+      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 short:mt-5 text-[0.9375rem] font-semibold text-sun`}>{agreedAt ? '외부 서비스 이용' : '4 / 4'}</p>
+      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[2.5rem] short:text-[2.125rem] font-bold leading-[1.12] tracking-[-0.035em]`}>함께 쓰는<br />외부 서비스</h1>
+      <p {...rise(leaving, 100)} className={`${rise(leaving, 100).className} mt-4 text-[0.9375rem] leading-relaxed text-white/55`}>택시메이트는 아래 서비스를 이용해 지도와 경로를 보여 드려요. 항목마다 확인하고 체크해 주세요.</p>
 
       <button type="button" onClick={toggleAll} disabled={!!agreedAt} {...rise(leaving, 140)}
         className={`${rise(leaving, 140).className} mt-8 flex items-center justify-between rounded-2xl bg-white/[.08] px-5 py-4 text-left`}>
-        <span className="text-[17px] font-semibold">모두 확인하고 동의해요</span>
+        <span className="text-[1.0625rem] font-semibold">모두 확인하고 동의해요</span>
         <Check on={all} />
       </button>
 
@@ -343,13 +343,13 @@ function ServicesStep({ leaving }: { leaving: boolean }) {
               className={`flex w-full items-start gap-4 rounded-2xl border px-5 py-4 text-left transition ${checked[s.id] ? 'border-sun/60 bg-sun/[.06]' : 'border-white/15'}`}>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-[18px] font-bold tracking-tight">{s.name}</span>
-                  <span className="truncate text-[12px] text-white/45">{s.owner}</span>
+                  <span className="text-[1.125rem] font-bold tracking-tight">{s.name}</span>
+                  <span className="truncate text-[0.75rem] text-white/45">{s.owner}</span>
                 </div>
-                <ul className="mt-2 space-y-1 text-[14px] leading-snug text-white/75">
+                <ul className="mt-2 space-y-1 text-[0.875rem] leading-snug text-white/75">
                   {s.uses.map(u => <li key={u} className="flex gap-2"><span className="text-sun">·</span>{u}</li>)}
                 </ul>
-                <p className="mt-2 text-[12.5px] leading-snug text-white/45">전달되는 정보: {s.sent}</p>
+                <p className="mt-2 text-[0.7813rem] leading-snug text-white/45">전달되는 정보: {s.sent}</p>
               </div>
               <Check on={checked[s.id]} />
             </button>
@@ -358,7 +358,7 @@ function ServicesStep({ leaving }: { leaving: boolean }) {
       </ul>
 
       <div className={`mt-auto pt-8 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: '420ms' }}>
-        {agreedAt && <p className="mb-4 text-center text-[13px] text-white/50">{formatTime(agreedAt)}에 동의했어요 · 버전 {consent!.policyVersion}</p>}
+        {agreedAt && <p className="mb-4 text-center text-[0.8125rem] text-white/50">{formatTime(agreedAt)}에 동의했어요 · 버전 {consent!.policyVersion}</p>}
         {agreedAt ? (
           <div className="flex gap-3">
             <button type="button" className="btn-sun flex-1" onClick={() => navigate('/')}>돌아가기</button>

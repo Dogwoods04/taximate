@@ -210,6 +210,8 @@ RoomSummary {
   capacity, seatsLeft, participantCount,
   terms: RoomTerms, meetingPoint: MeetingPoint | null,
   estimatedTaxiFareWon: number | null,    // host route RouteSnapshot.taxiFareWon; UI per-person = this / participantCount
+  routeDistanceMeters: number | null,     // host route RouteSnapshot.distanceMeters (null if no route)
+  routeDurationSeconds: number | null,    // host route RouteSnapshot.durationSeconds; room map bubble "N분 · N km"
   originName: string | null,              // host origin PlaceRef.name if kind ∈ {SEARCH, STATION_EXIT, BUS_STOP, LANDMARK} (public place/building name), else null. Never the address.
   destinationName: string | null          // same for the destination
 }
