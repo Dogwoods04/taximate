@@ -448,16 +448,24 @@ function PlaceResults({ field, bias, onChoose, onBlur }: { field: Field; bias?: 
   const [results, setResults] = useState<PlaceRef[] | null>(null);
   const [loading, setLoading] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  // iOS Safari blurs the input on a tap even when pointerdown is prevented, and the blur closes this list before the
+  // tap's click arrives — so a result is picked on pointerup (a tap, not a scroll) and a blur during a press is ignored.
+  const press = useRef<{ x: number; y: number } | null>(null);
+  const chosen = useRef(false);
+  const pick = (p: PlaceRef) => { if (chosen.current) return; chosen.current = true; onChoose(p); };
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       const target = event.target as Element;
       if (target.closest('input, label, ul, [data-sheet-handle], [data-search-field]')) return;
       input.current?.blur();
     };
+    // A press that ends off the results (finger slid away) must not keep suppressing blur.
+    const release = () => { press.current = null; };
     document.addEventListener('pointerdown', outside);
-    return () => document.removeEventListener('pointerdown', outside);
+    document.addEventListener('pointerup', release);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('pointerup', release); };
   }, []);
-  useEffect(() => { setQuery(''); setResults(null); const t = setTimeout(() => input.current?.focus(), 60); return () => clearTimeout(t); }, [field]);
+  useEffect(() => { chosen.current = false; press.current = null; setQuery(''); setResults(null); const t = setTimeout(() => input.current?.focus(), 60); return () => clearTimeout(t); }, [field]);
   useEffect(() => {
     const q = query.trim();
     if (!q) { setResults(null); return; }
@@ -476,7 +484,7 @@ function PlaceResults({ field, bias, onChoose, onBlur }: { field: Field; bias?: 
     <div className="mt-4 flex min-h-0 flex-1 flex-col">
       <label className="flex h-14 shrink-0 items-center gap-3 rounded-2xl bg-fog px-4">
         <SearchIcon size={20} className="text-mute" />
-        <input ref={input} value={query} onBlur={onBlur} onChange={e => setQuery(e.target.value)} enterKeyHint="search"
+        <input ref={input} value={query} onBlur={() => { if (!press.current) onBlur(); }} onChange={e => setQuery(e.target.value)} enterKeyHint="search"
           placeholder={field === 'origin' ? '어디서 출발하세요? (예: 정왕역)' : '어디로 가세요? (예: 시흥시청)'}
           className="min-w-0 flex-1 bg-transparent text-[1.0625rem] outline-none placeholder:text-mute" />
         {query && <button type="button" onPointerDown={e => e.preventDefault()} onClick={() => setQuery('')} aria-label="지우기" className="text-mute"><CloseIcon size={18} /></button>}
@@ -485,10 +493,13 @@ function PlaceResults({ field, bias, onChoose, onBlur }: { field: Field; bias?: 
         {loading && !results && <Spinner />}
         {!query.trim() && <PlaceNameHint className="mt-4">역·건물·가게처럼 누구나 아는 장소 이름으로 검색해 주세요. 방을 열면 고른 장소 이름이 다른 이웃에게 그대로 보여요.</PlaceNameHint>}
         {results?.length === 0 && <p className="px-1 py-6 text-sm text-mute">검색 결과가 없어요. 다른 이름으로 찾아 주세요.</p>}
-        <ul onPointerDown={e => { if ((e.target as Element).closest('button')) e.preventDefault(); }}>
+        <ul onPointerDown={e => { if ((e.target as Element).closest('button')) { e.preventDefault(); press.current = { x: e.clientX, y: e.clientY }; } }}
+          onPointerCancel={() => { press.current = null; }}>
           {results?.map((p, i) => (
             <li key={p.providerPlaceId ?? i} className="border-b border-line last:border-0">
-              <button type="button" onClick={() => onChoose(p)} className="flex w-full items-center gap-4 py-4 text-left transition active:bg-fog-soft">
+              <button type="button" onClick={() => pick(p)}
+                onPointerUp={e => { const s = press.current; press.current = null; if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 12) pick(p); }}
+                className="flex w-full items-center gap-4 py-4 text-left transition active:bg-fog-soft">
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-fog"><ArrowIcon size={16} className="-scale-x-100" /></span>
                 <span className="min-w-0">
                   <span className="block truncate text-[1rem] font-semibold">{p.name ?? '이름 없는 장소'}</span>
