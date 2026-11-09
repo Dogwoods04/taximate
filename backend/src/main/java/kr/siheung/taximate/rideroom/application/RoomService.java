@@ -150,6 +150,10 @@ public class RoomService implements RideRoomApi {
     private void end(RideRoom r,RoomStatus status) {
         r.status=status; r.closedAt=now(); active(r.id).forEach(p->trips.releaseToSearching(p.tripId));
         changed(r,status==RoomStatus.CLOSED?"동승이 종료되었습니다":status==RoomStatus.EXPIRED?"모집 시간이 만료되었습니다":"모집방이 취소되었습니다");
+        // The ride's purpose is over: destroy precise locations of trips that ended with this room (MATCHED etc.).
+        // Trips released back to searching stay ACTIVE and are untouched by the trip module.
+        Set<UUID> tripIds=new HashSet<>(); tripIds.add(r.sourceTripId); participants(r.id).forEach(p->tripIds.add(p.tripId));
+        trips.eraseEndedLocations(tripIds);
     }
     public RoomDetail cancel(UUID id,UUID memberId) { RideRoom r=lock(id); host(r,memberId); joinable(r); end(r,RoomStatus.CANCELLED); return detail(id,memberId); }
     public RoomDetail close(UUID id,UUID memberId) {
@@ -163,6 +167,25 @@ public class RoomService implements RideRoomApi {
             RoomParticipant p=participant(id,e.memberId()); if(p==null) continue;
             if(p.role==Role.HOST) end(r,RoomStatus.CANCELLED); else depart(r,p,Status.LEFT);
         }
+    }
+    /**
+     * 회원 탈퇴 (after the trip module cancelled the active trip, which already cancelled/left the JOINABLE rooms of
+     * that trip): leave every room where the member is still ACTIVE. Hosted OPEN/COORDINATING rooms are cancelled,
+     * a hosted CONFIRMED room is closed (nobody else could close it), otherwise the member leaves. Ended rooms are
+     * history and untouched. Same transitions as the user actions, so system messages and socket events fire.
+     */
+    @EventListener @org.springframework.core.annotation.Order(20)
+    public void memberWithdrawn(MemberWithdrawnEvent e) {
+        List<UUID> ids=em.createQuery("select p.roomId from RoomParticipant p where p.memberId=:member and p.status=:active order by p.roomId",UUID.class)
+            .setParameter("member",e.memberId()).setParameter("active",Status.ACTIVE).getResultList();
+        for(UUID id:ids) { RideRoom r=lock(id); if(!RoomStatus.ACTIVE.contains(r.status)) continue;
+            RoomParticipant p=participant(id,e.memberId()); if(p==null || p.status!=Status.ACTIVE) continue;
+            if(p.role==Role.HOST) end(r,r.status==RoomStatus.CONFIRMED?RoomStatus.CLOSED:RoomStatus.CANCELLED); else depart(r,p,Status.LEFT);
+        }
+    }
+    /** Rooms the member hosts (any status); used by moderation to scrub report previews on withdrawal. */
+    public List<UUID> hostedRoomIds(UUID memberId) {
+        return em.createQuery("select r.id from RideRoom r where r.hostMemberId=:member",UUID.class).setParameter("member",memberId).getResultList();
     }
     public List<UUID> expiring() { return em.createQuery("select r.id from RideRoom r where r.status in :statuses and r.departureWindowEnd<:now",UUID.class).setParameter("statuses",RoomStatus.JOINABLE).setParameter("now",now()).getResultList(); }
     public void expire(UUID id) { RideRoom r=lock(id); if(RoomStatus.JOINABLE.contains(r.status) && r.departureWindowEnd.isBefore(now())) end(r,RoomStatus.EXPIRED); }

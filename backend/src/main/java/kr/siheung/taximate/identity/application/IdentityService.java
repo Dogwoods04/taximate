@@ -24,7 +24,7 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
     }
     public record ConsentDto(UUID id, String policyVersion, OffsetDateTime agreedAt) {}
     public record ServicesConsentDto(UUID id, String policyVersion, List<String> items, OffsetDateTime agreedAt) {}
-    public record MemberDto(UUID id, String nickname, MemberRole role, MemberStatus status, ConsentDto locationConsent, ServicesConsentDto servicesConsent, Gender gender, GenderSource genderSource, String authProvider) {}
+    public record MemberDto(UUID id, String nickname, MemberRole role, MemberStatus status, ConsentDto locationConsent, ServicesConsentDto servicesConsent, Gender gender, GenderSource genderSource, String authProvider, boolean ageConfirmed) {}
     public record LoginDto(String token, MemberDto member) {}
     private Member member(UUID id) {
         Member m=em.find(Member.class,id);
@@ -44,7 +44,7 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
     }
     public MemberDto me(UUID id) {
         Member m=member(id); LocationConsent c=consent(id);
-        return new MemberDto(m.id,m.nickname,m.role,m.status,c==null?null:new ConsentDto(c.id,c.policyVersion,c.agreedAt),toDto(servicesConsent(id)),m.gender,m.genderSource,m.authProvider);
+        return new MemberDto(m.id,m.nickname,m.role,m.status,c==null?null:new ConsentDto(c.id,c.policyVersion,c.agreedAt),toDto(servicesConsent(id)),m.gender,m.genderSource,m.authProvider,m.ageConfirmedAt!=null);
     }
     @Override public Gender getGender(UUID id) { return member(id).gender; }
     public MemberDto setGender(UUID id,Gender gender) {
@@ -57,6 +57,10 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
         if(!props.devLoginEnabled()) throw ApiException.forbidden("Development login disabled");
         nickname=nickname.trim();
         if(nickname.length()<2 || nickname.length()>20) throw new ApiException(ErrorCode.VALIDATION_FAILED,"Invalid nickname");
+        String prefix=props.devLoginPrefix();
+        if(prefix!=null && !nickname.startsWith(prefix) && !admin(nickname))
+            throw new ApiException(ErrorCode.DEV_LOGIN_RESTRICTED,"Nickname login is limited to demo accounts ("+prefix+"…)");
+        if(withdrawnName(nickname)) throw new ApiException(ErrorCode.NICKNAME_TAKEN,"Nickname unavailable");
         lockNames();
         // Database advisory lock also serializes first login before a member row exists.
         // pg_advisory_xact_lock returns void; wrap it so the JDBC result is a plain integer.
@@ -66,8 +70,9 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
             m=new Member(); m.id=UUID.randomUUID(); m.nickname=nickname; m.status=MemberStatus.ACTIVE;
             m.createdAt=OffsetDateTime.now(clock); m.role=MemberRole.USER; em.persist(m);
         }
+        if (m.status==MemberStatus.WITHDRAWN) throw new ApiException(ErrorCode.NICKNAME_TAKEN,"Nickname unavailable");
         if (!"DEV".equals(m.authProvider)) throw new ApiException(ErrorCode.NICKNAME_TAKEN,"Use Kakao login for this account");
-        m.role=Arrays.stream(props.adminNicknames().split(",")).map(String::trim).anyMatch(nickname::equals)?MemberRole.ADMIN:MemberRole.USER;
+        m.role=admin(nickname)?MemberRole.ADMIN:MemberRole.USER;
         return issueToken(m);
     }
     private LoginDto issueToken(Member m) {
@@ -78,12 +83,19 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
     }
     // A single DB transaction lock covers all nickname writers, including first logins and renames.
     private void lockNames() { em.createNativeQuery("select 1 from (select pg_advisory_xact_lock(871302014)) l").getSingleResult(); }
-    private boolean reserved(String name) { return Arrays.stream(props.adminNicknames().split(",")).map(String::trim).anyMatch(name::equals); }
+    private boolean admin(String name) { return Arrays.stream(props.adminNicknames().split(",")).map(String::trim).anyMatch(name::equals); }
+    /** Admin names and the withdrawn-member placeholder namespace are never assignable. */
+    private boolean reserved(String name) { return admin(name) || withdrawnName(name); }
+    private static final String WITHDRAWN_PREFIX="탈퇴회원";
+    private static boolean withdrawnName(String name) { return name.startsWith(WITHDRAWN_PREFIX); }
     private boolean taken(String name) { return em.createQuery("select count(m) from Member m where nickname=:name",Long.class).setParameter("name",name).getSingleResult()>0; }
     public MemberDto rename(UUID id,String nickname) {
         nickname=nickname.trim();
         if(nickname.length()<2 || nickname.length()>20) throw new ApiException(ErrorCode.VALIDATION_FAILED,"Invalid nickname");
         lockNames(); Member m=member(id); requireActive(id);
+        String prefix=props.devLoginPrefix();
+        if(prefix!=null && "DEV".equals(m.authProvider) && !nickname.startsWith(prefix))
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,"Demo account nicknames must start with "+prefix);
         if(reserved(nickname) || (!m.nickname.equals(nickname) && taken(nickname))) throw new ApiException(ErrorCode.NICKNAME_TAKEN,"Nickname unavailable");
         m.nickname=nickname; return me(id);
     }
@@ -95,7 +107,7 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
         if(isNew) {
             String base=profile.nickname().trim();
             if(base.length()>20) base=base.substring(0,20);
-            if(base.length()<2) base="이웃"+(1000+random.nextInt(9000));
+            if(base.length()<2 || withdrawnName(base)) base="이웃"+(1000+random.nextInt(9000));
             String name=base;
             for(int n=1; reserved(name)||taken(name); n++) { String suffix=Integer.toString(n); name=base.substring(0,Math.min(base.length(),20-suffix.length()))+suffix; }
             m=new Member(); m.id=UUID.randomUUID(); m.nickname=name; m.kakaoId=profile.id(); m.authProvider="KAKAO";
@@ -108,7 +120,9 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
     @Override public AuthenticatedMember authenticate(String token) {
         AuthToken t=token==null?null:em.find(AuthToken.class,token);
         if(t==null) throw new ApiException(ErrorCode.UNAUTHENTICATED,"Authentication required");
-        Member m=member(t.memberId); t.lastUsedAt=OffsetDateTime.now(clock);
+        Member m=member(t.memberId);
+        if(m.status==MemberStatus.WITHDRAWN) throw new ApiException(ErrorCode.UNAUTHENTICATED,"Authentication required");
+        t.lastUsedAt=OffsetDateTime.now(clock);
         return new AuthenticatedMember(m.id,m.nickname,m.role);
     }
     @Override public MemberSnapshot getMember(UUID id) { Member m=member(id); return new MemberSnapshot(m.id,m.nickname,m.role,m.status); }
@@ -161,5 +175,34 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
         em.find(Member.class,id,LockModeType.PESSIMISTIC_WRITE);
         ServiceConsent c=servicesConsent(id);
         if(c!=null) c.withdrawnAt=OffsetDateTime.now(clock);
+    }
+    public MemberDto confirmAge(UUID id) {
+        Member m=em.find(Member.class,id,LockModeType.PESSIMISTIC_WRITE);
+        if(m==null) throw ApiException.notFound("Member");
+        if(m.ageConfirmedAt==null) m.ageConfirmedAt=OffsetDateTime.now(clock);
+        return me(id);
+    }
+    /**
+     * 회원 탈퇴, in one transaction. The member row is anonymized first (so system messages written by listeners
+     * show the placeholder, never the old nickname), then MemberWithdrawnEvent lets every module erase its own
+     * data, then all tokens are deleted. Consent rows stay as withdrawn history (policy version and times only),
+     * the same representation as an ordinary consent withdrawal.
+     */
+    public void withdrawMember(UUID id) {
+        lockNames();
+        Member m=em.find(Member.class,id,LockModeType.PESSIMISTIC_WRITE);
+        if(m==null) throw ApiException.notFound("Member");
+        if(m.status==MemberStatus.WITHDRAWN) return;
+        OffsetDateTime now=OffsetDateTime.now(clock);
+        LocationConsent c=consent(id); if(c!=null) c.withdrawnAt=now;
+        ServiceConsent s=servicesConsent(id); if(s!=null) s.withdrawnAt=now;
+        String name;
+        do { byte[] b=new byte[4]; random.nextBytes(b); name=WITHDRAWN_PREFIX+"-"+HexFormat.of().formatHex(b); } while(taken(name));
+        m.nickname=name; m.kakaoId=null; m.gender=null; m.genderSource=null; m.genderUpdatedAt=null;
+        m.restrictedReason=null; m.ageConfirmedAt=null; m.role=MemberRole.USER;
+        m.status=MemberStatus.WITHDRAWN; m.withdrawnAt=now;
+        em.flush();
+        events.publishEvent(new MemberWithdrawnEvent(id));
+        em.createQuery("delete from AuthToken where memberId=:id").setParameter("id",id).executeUpdate();
     }
 }

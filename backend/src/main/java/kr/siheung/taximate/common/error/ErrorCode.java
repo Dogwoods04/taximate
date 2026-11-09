@@ -14,6 +14,8 @@ public enum ErrorCode {
     FORBIDDEN(HttpStatus.FORBIDDEN),
     NOT_FOUND(HttpStatus.NOT_FOUND),
     MEMBER_RESTRICTED(HttpStatus.FORBIDDEN),
+    /** Nickname login is limited to demo nicknames (taximate.auth.dev-login-nickname-prefix). */
+    DEV_LOGIN_RESTRICTED(HttpStatus.FORBIDDEN),
     LOCATION_CONSENT_REQUIRED(HttpStatus.PRECONDITION_REQUIRED),
     ACTIVE_TRIP_EXISTS(HttpStatus.CONFLICT),
     TRIP_NOT_SEARCHABLE(HttpStatus.CONFLICT),

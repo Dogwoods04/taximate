@@ -114,6 +114,7 @@ PC·Docker·백엔드·터널이 켜져 있을 때만 동작하는 **임시 테�
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | REST + WebSocket 허용 origin |
 | `DEV_LOGIN_ENABLED` | `true` | 닉네임 개발 로그인. **운영에서는 false로 끄고 카카오 로그인 사용** |
 | `ADMIN_NICKNAMES` | `admin` | 쉼표 구분, 이 닉네임은 ADMIN 권한 |
+| `DEV_LOGIN_NICKNAME_PREFIX` | (빈 값 = 제한 없음) | 예: `샘플`. 설정하면 닉네임 로그인은 이 접두사로 시작하는 체험용 닉네임(과 `ADMIN_NICKNAMES`)만 허용(그 외 403 `DEV_LOGIN_RESTRICTED`), 닉네임 계정은 이름을 바꿔도 접두사 유지. `backend/.env`에는 `샘플`처럼 유니코드 이스케이프로 적기 |
 
 매칭·프라이버시 임계값은 `application.yml`의 `taximate.matching.*`, `taximate.meeting-point.*`, `taximate.privacy.*`, 도보 경로는 `taximate.walking.*`에서 조정합니다.
 

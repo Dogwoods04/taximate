@@ -47,6 +47,26 @@ public class ModerationService {
         r.resolvedAt=OffsetDateTime.now(clock); r.resolvedBy=me.memberId(); r.resolutionNote=note;
         ModerationAction a=new ModerationAction(); a.id=UUID.randomUUID(); a.reportId=id; a.adminId=me.memberId(); a.action=action; a.note=note; a.createdAt=r.resolvedAt; em.persist(a); return dto(r);
     }
+    /**
+     * 회원 탈퇴: report rows are kept (ids, type, reason, status, admin resolution) but nothing personal about the
+     * withdrawn member remains: previews of reports about them (their nickname, message text, hosted-room area
+     * labels) and the free-text detail they wrote as reporter are cleared. Nicknames are resolved live through
+     * IdentityApi, so the reporter now shows as the withdrawn placeholder.
+     */
+    @org.springframework.context.event.EventListener @org.springframework.core.annotation.Order(40)
+    public void memberWithdrawn(kr.siheung.taximate.identity.api.MemberWithdrawnEvent e) {
+        UUID member=e.memberId();
+        em.createQuery("update Report r set r.detail=null where r.reporterId=:member").setParameter("member",member).executeUpdate();
+        em.createQuery("update Report r set r.targetPreview=null where r.targetType=:type and r.targetId=:member")
+            .setParameter("type",Report.TargetType.MEMBER).setParameter("member",member).executeUpdate();
+        scrubPreviews(Report.TargetType.MESSAGE,conversation.messageIdsBySender(member));
+        scrubPreviews(Report.TargetType.ROOM,rooms.hostedRoomIds(member));
+    }
+    private void scrubPreviews(Report.TargetType type,List<UUID> ids) {
+        if(ids.isEmpty()) return;
+        em.createQuery("update Report r set r.targetPreview=null where r.targetType=:type and r.targetId in :ids")
+            .setParameter("type",type).setParameter("ids",ids).executeUpdate();
+    }
     private void requireType(Report r,Report.TargetType type) { if(r.targetType!=type) throw new ApiException(ErrorCode.VALIDATION_FAILED,"Action does not match report target"); }
     public record AdminMetrics(int periodDays,long openReports,long reportsInPeriod,long tripsCreated,long tripsMatched,long tripsNoMatch,long tripsExpired,double matchFailureRate,long roomsCreated,long roomsConfirmed) {}
     public AdminMetrics metrics(AuthenticatedMember me) {

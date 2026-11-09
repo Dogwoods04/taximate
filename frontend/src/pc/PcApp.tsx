@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import LandingPage from './LandingPage';
 import TryPage from './TryPage';
+import LegalPage from './LegalPage';
 import './pc.css';
 
 /**
@@ -13,6 +14,7 @@ export default function PcApp() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/try" element={<TryPage />} />
+      <Route path="/legal/:doc?" element={<LegalPage />} />
       <Route path="*" element={<DeepLink />} />
     </Routes>
   );

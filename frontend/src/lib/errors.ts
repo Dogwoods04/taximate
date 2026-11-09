@@ -12,6 +12,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   FORBIDDEN: '이 작업을 할 권한이 없어요.',
   NOT_FOUND: '요청한 정보를 찾을 수 없어요.',
   MEMBER_RESTRICTED: '이용이 제한된 계정이에요. 운영자에게 문의해 주세요.',
+  DEV_LOGIN_RESTRICTED: '닉네임 체험은 체험용 계정 이름으로만 할 수 있어요. 카카오 로그인을 이용해 주세요.',
   LOCATION_CONSENT_REQUIRED: '위치 정보 이용 동의가 필요해요.',
   ACTIVE_TRIP_EXISTS: '이미 진행 중인 이동이 있어요.',
   TRIP_NOT_SEARCHABLE: '지금은 동행을 찾을 수 없는 이동 상태예요.',

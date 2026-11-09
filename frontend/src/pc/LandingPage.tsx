@@ -236,6 +236,11 @@ function Footer() {
           <p className="mt-4 max-w-[520px] text-[14px] leading-relaxed text-mute">
             시흥 지역 테스트 서비스예요. 택시 호출과 결제는 제공하지 않으며, 표시되는 요금은 참고용 예상치예요.
           </p>
+          <nav className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-mute-dark" aria-label="약관 및 정책">
+            <Link to="/legal/terms" className="hover:text-ink">이용약관</Link>
+            <Link to="/legal/privacy" className="font-bold text-ink hover:underline">개인정보 처리방침</Link>
+            <Link to="/legal/location" className="font-bold text-ink hover:underline">위치기반서비스 이용약관</Link>
+          </nav>
         </div>
         <nav className="flex gap-6 text-[14px] font-medium text-mute-dark" aria-label="바닥글">
           <a href="#how" className="hover:text-ink">이용 방법</a>

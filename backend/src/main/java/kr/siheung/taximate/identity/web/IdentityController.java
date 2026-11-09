@@ -13,8 +13,8 @@ public class IdentityController {
     public IdentityController(IdentityService service, KakaoClient kakao, KakaoProperties kakaoProps, AuthProperties authProps) {
         this.service=service; this.kakao=kakao; this.kakaoProps=kakaoProps; this.authProps=authProps;
     }
-    public record AuthOptions(boolean devLogin, boolean kakao) {}
-    @GetMapping("/api/auth/options") public AuthOptions options() { return new AuthOptions(authProps.devLoginEnabled(),kakaoProps.available()); }
+    public record AuthOptions(boolean devLogin, boolean kakao, String devLoginPrefix) {}
+    @GetMapping("/api/auth/options") public AuthOptions options() { return new AuthOptions(authProps.devLoginEnabled(),kakaoProps.available(),authProps.devLoginPrefix()); }
     public record KakaoRequest(@NotBlank @Size(max=4096) String code, @NotBlank @Size(max=2048) String redirectUri) {}
     @PostMapping("/api/auth/kakao") public Object kakao(@Valid @RequestBody KakaoRequest r) { return service.kakaoLogin(kakao.exchange(r.code(),r.redirectUri())); }
     @PutMapping("/api/me/nickname") public Object rename(@CurrentMember AuthenticatedMember me,@Valid @RequestBody LoginRequest r) { return service.rename(me.memberId(),r.nickname()); }
@@ -25,6 +25,13 @@ public class IdentityController {
     public record ServicesConsentRequest(@NotBlank @Size(max=32) String policyVersion, @NotNull java.util.List<String> items) {}
     @PostMapping("/api/auth/dev-login") public Object login(@Valid @RequestBody LoginRequest r) { return service.login(r.nickname()); }
     @GetMapping("/api/me") public Object me(@CurrentMember AuthenticatedMember me) { return service.me(me.memberId()); }
+    @DeleteMapping("/api/me") @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+    public void withdrawMember(@CurrentMember AuthenticatedMember me) { service.withdrawMember(me.memberId()); }
+    public record AgeConfirmationRequest(Boolean over14) {}
+    @PostMapping("/api/me/age-confirmation") public Object confirmAge(@CurrentMember AuthenticatedMember me,@RequestBody AgeConfirmationRequest r) {
+        if(r==null || !Boolean.TRUE.equals(r.over14())) throw new kr.siheung.taximate.common.error.ApiException(kr.siheung.taximate.common.error.ErrorCode.VALIDATION_FAILED,"over14 must be true");
+        return service.confirmAge(me.memberId());
+    }
     @PostMapping("/api/me/consents/location") public Object agree(@CurrentMember AuthenticatedMember me,@Valid @RequestBody ConsentRequest r) { return service.agree(me.memberId(),r.policyVersion()); }
     @DeleteMapping("/api/me/consents/location") @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
     public void withdraw(@CurrentMember AuthenticatedMember me) { service.withdraw(me.memberId()); }

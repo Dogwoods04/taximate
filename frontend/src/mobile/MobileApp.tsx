@@ -10,6 +10,7 @@ import HomeScreen from './screens/HomeScreen';
 import OnTheWayScreen from './screens/OnTheWayScreen';
 import MyRoomsScreen from './screens/MyRoomsScreen';
 import AdminScreen from './screens/AdminScreen';
+import LegalScreen from './screens/LegalScreen';
 
 export default function MobileApp() {
   return (
@@ -26,6 +27,7 @@ export default function MobileApp() {
           </Route>
           <Route path="/me" element={<RequireAuth><GenderStep profile /></RequireAuth>} />
           <Route path="/me/rooms" element={<RequireAuth><MyRoomsScreen /></RequireAuth>} />
+          <Route path="/legal/:doc?" element={<LegalScreen />} />
           <Route path="/admin" element={<RequireAuth admin><AdminScreen /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -42,6 +44,6 @@ function RequireAuth({ children, admin = false, consent = false }: { children: R
   if (admin && member.role !== 'ADMIN') return <Navigate to="/" replace />;
   // Map screens need both agreements (location notice, external services). Anyone who hasn't finished them —
   // including people with a saved session from before a step was added — starts over from the Start screen.
-  if (consent && (sessionStorage.getItem(kakaoPendingName) === member.id || !member.gender || !member.locationConsent || !member.servicesConsent)) return <Navigate to="/start" replace state={{ from: location.pathname }} />;
+  if (consent && (sessionStorage.getItem(kakaoPendingName) === member.id || !member.ageConfirmed || !member.gender || !member.locationConsent || !member.servicesConsent)) return <Navigate to="/start" replace state={{ from: location.pathname }} />;
   return <>{children}</>;
 }

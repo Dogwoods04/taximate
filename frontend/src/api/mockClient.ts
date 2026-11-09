@@ -8,6 +8,8 @@ type Room = { sameGenderOnly: boolean; restrictedGender: C.Gender | null; id: st
 type StoredMessage = C.Message & { clientMessageId?: string };
 type State = { version: 1; members: C.Member[]; tokens: Record<string, string>; trips: Trip[]; rooms: Room[]; messages: StoredMessage[]; reports: C.Report[]; seededAt: string };
 const key = 'taximate.mock.v3';
+/** Demo-account prefix for nickname login (backend: taximate.auth.dev-login-nickname-prefix). The mock stays unrestricted. */
+const devLoginPrefix: string | null = null;
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
 const joinable = (r: Room) => ['OPEN', 'COORDINATING'].includes(r.status);
@@ -30,7 +32,7 @@ let state: State = (() => {
   return blank();
 })();
 // Upgrade persisted demos without treating missing gender as a completed choice.
-state.members.forEach(m => { m.authProvider ??= 'DEV'; m.gender ??= null; m.genderSource ??= null; });
+state.members.forEach(m => { m.authProvider ??= 'DEV'; m.gender ??= null; m.genderSource ??= null; m.ageConfirmed ??= false; });
 state.rooms.forEach(r => { r.sameGenderOnly ??= false; r.restrictedGender ??= null; });
 function eligible(r: Room, m = caller()) { return !r.sameGenderOnly || (!!r.restrictedGender && r.restrictedGender === m.gender); }
 function save() { localStorage.setItem(key, JSON.stringify(state)); }
@@ -96,7 +98,7 @@ function sweep() {
   save();
 }
 function makeMember(nickname: string): C.Member {
-  const m: C.Member = { id: uuid(), nickname, authProvider: 'DEV', role: nickname === 'admin' ? 'ADMIN' : 'USER', status: 'ACTIVE', gender: null, genderSource: null, locationConsent: null, servicesConsent: null }; state.members.push(m); return m;
+  const m: C.Member = { id: uuid(), nickname, authProvider: 'DEV', role: nickname === 'admin' ? 'ADMIN' : 'USER', status: 'ACTIVE', gender: null, genderSource: null, locationConsent: null, servicesConsent: null, ageConfirmed: false }; state.members.push(m); return m;
 }
 function makeTrip(m: C.Member, body: C.CreateTripRequest): Trip {
   const t: Trip = { owner: m.id, value: { ...structuredClone(body), id: uuid(), status: 'SEARCHING', route: route(body.origin.location, body.destination.location), routeError: null, expiresAt: new Date(Date.parse(body.desiredDepartureAt) + body.maxWaitMinutes * 60000).toISOString(), createdAt: now() } }; state.trips.push(t); return t;
@@ -179,7 +181,7 @@ function compare(mine: C.TripIntent, other: C.TripIntent, departureAt: string) {
 }
 export const mockClient: ApiClient = {
   identity: {
-    options: () => apiCall(() => ({ devLogin: true, kakao: true })),
+    options: () => apiCall(() => ({ devLogin: true, kakao: true, devLoginPrefix })),
     kakaoLogin: () => apiCall(() => {
       let m = state.members.find(m => m.authProvider === 'KAKAO');
       const isNew = !m;
@@ -194,10 +196,30 @@ export const mockClient: ApiClient = {
     rename: b => apiCall(() => {
       const m = caller(true), nickname = b.nickname.trim(); valid(nickname.length >= 2 && nickname.length <= 20);
       if (nickname === 'admin' || state.members.some(other => other.id !== m.id && other.nickname === nickname)) fail('NICKNAME_TAKEN');
+      if (devLoginPrefix && m.authProvider === 'DEV' && m.role !== 'ADMIN') valid(nickname.startsWith(devLoginPrefix), `체험용 계정 이름은 '${devLoginPrefix}'로 시작해야 해요.`);
       m.nickname = nickname; return m;
     }),
-    login: b => apiCall(() => { const nickname = b.nickname.trim(); valid(nickname.length >= 2 && nickname.length <= 20); const m = state.members.find(m => m.nickname === nickname) ?? makeMember(nickname); if (m.authProvider !== 'DEV') fail('NICKNAME_TAKEN'); const token = uuid(); state.tokens[token] = m.id; return { token, member: m }; }),
+    login: b => apiCall(() => { const nickname = b.nickname.trim(); valid(nickname.length >= 2 && nickname.length <= 20); if (devLoginPrefix && nickname !== 'admin' && !nickname.startsWith(devLoginPrefix)) fail('DEV_LOGIN_RESTRICTED' as C.ErrorCode); const m = state.members.find(m => m.nickname === nickname) ?? makeMember(nickname); if (m.authProvider !== 'DEV') fail('NICKNAME_TAKEN'); const token = uuid(); state.tokens[token] = m.id; return { token, member: m }; }),
     me: () => apiCall(() => caller()),
+    confirmAge: b => apiCall(() => { valid(b?.over14 === true); const m = caller(); m.ageConfirmed = true; return m; }),
+    deleteAccount: () => apiCall(() => {
+      const m = caller(), gone = '탈퇴한 이웃';
+      // Like the backend: cancel the active trip (leaves its room; a hosted recruiting room is cancelled), leave any other
+      // joinable room, drop own message bodies, then forget the member and every token.
+      state.trips.filter(t => t.owner === m.id && activeTrip(t.value)).forEach(cancelTrip);
+      for (const r of state.rooms) {
+        const p = active(r).find(p => p.memberId === m.id);
+        if (p && joinable(r)) {
+          if (p.role === 'HOST') { r.status = 'CANCELLED'; r.endedAt = now(); } else { p.status = 'LEFT'; if (active(r).length === 1) r.status = 'OPEN'; }
+          changed(r);
+        }
+        r.participants.filter(p => p.memberId === m.id).forEach(p => { p.nickname = gone; });
+      }
+      state.messages.filter(x => x.senderId === m.id).forEach(x => { x.body = null; x.senderNickname = gone; });
+      state.reports.filter(r => r.reporterId === m.id).forEach(r => { r.reporterNickname = gone; });
+      state.members = state.members.filter(x => x.id !== m.id);
+      for (const [token, id] of Object.entries(state.tokens)) if (id === m.id) delete state.tokens[token];
+    }),
     setGender: b => apiCall(() => { const m = caller(true); valid(['MALE','FEMALE','UNDISCLOSED'].includes(b.gender)); if (m.genderSource === 'KAKAO') fail('GENDER_SOURCE_LOCKED'); m.gender = b.gender; m.genderSource = 'SELF'; return m; }),
     agree: b => apiCall(() => { valid(b.policyVersion.trim()); const m = caller(true); return m.locationConsent = { id: uuid(), policyVersion: b.policyVersion, agreedAt: now() }; }),
     withdraw: () => apiCall(() => { const m = caller(); m.locationConsent = null; state.trips.filter(t => t.owner === m.id && activeTrip(t.value)).forEach(cancelTrip); }),

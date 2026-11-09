@@ -16,6 +16,7 @@ import kr.siheung.taximate.trip.domain.*;
 import kr.siheung.taximate.trip.web.*;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -137,6 +138,12 @@ public class TripService implements TripApi {
         });
     }
     @Override @Transactional
+    public void eraseEndedLocations(Collection<UUID> ids) {
+        ids.stream().distinct().sorted().forEach(id -> trips.lockById(id).ifPresent(t -> {
+            if (!TripStatus.ACTIVE.contains(t.status)) erase(t);
+        }));
+    }
+    @Override @Transactional
     public void releaseToSearching(UUID id) {
         TripIntent t=required(id, true);
         if (t.status == TripStatus.NO_MATCH) { t.status=TripStatus.SEARCHING; t.updatedAt=now(); }
@@ -153,18 +160,41 @@ public class TripService implements TripApi {
         trips.findActiveIds(event.memberId(), TripStatus.ACTIVE).stream()
                 .forEach(id -> { TripIntent t=required(id,true); t.locationConsentReference=null; cancelActive(t); });
     }
+    /** 회원 탈퇴: cancel the active trip (rooms react to TripCancelledEvent), then destroy every trip's location. */
+    @EventListener @Order(10) @Transactional
+    public void memberWithdrawn(MemberWithdrawnEvent event) {
+        for (UUID id : trips.findIdsByRequester(event.memberId())) {
+            TripIntent t=required(id,true); cancelActive(t); t.locationConsentReference=null; erase(t);
+        }
+    }
+    /**
+     * Destroys precise location data of a trip whose purpose has ended: coordinates, place names, addresses and
+     * provider ids of origin/destination, and the stored route path. Kind, distance, duration and fare remain.
+     */
+    private void erase(TripIntent t) {
+        if (t.originLat != null || t.destinationLat != null || t.originName != null || t.destinationName != null
+                || t.originAddress != null || t.destinationAddress != null) {
+            t.purgeLocation(); t.updatedAt=now();
+        }
+        routes.purgeForTrip(t.id);
+    }
     private void cancelActive(TripIntent t) {
         if (TripStatus.ACTIVE.contains(t.status)) {
             t.end(TripStatus.CANCELLED, now()); events.publishEvent(new TripCancelledEvent(t.id, t.requesterId));
+            // Room listeners (cancel / leave) ran synchronously above; the trip's purpose is over.
+            erase(t);
         }
     }
     @Scheduled(fixedDelay=60000) @Transactional
-    public void expire() { var now=now(); trips.lockExpired(TripStatus.ACTIVE, now).forEach(t -> t.end(TripStatus.EXPIRED, now)); }
-    @Scheduled(fixedDelay=3600000) @Transactional
+    public void expire() { var now=now(); trips.lockExpired(TripStatus.ACTIVE, now).forEach(t -> { t.end(TripStatus.EXPIRED, now); erase(t); }); }
+    /** MATCHED trips whose room was never closed are swept this long after their own window (safety net). */
+    private static final int MATCHED_SWEEP_HOURS=24;
+    /** Safety net for the immediate erasure (rows ended before this rule existed, missed hooks). */
+    @Scheduled(fixedDelay=600000) @Transactional
     public void purgeLocations() {
-        for (TripIntent t : trips.lockForPurge(now().minusHours(privacy.locationRetentionHours()))) {
-            t.purgeLocation(); t.updatedAt=now(); routes.purgeForTrip(t.id);
-        }
+        var now=now();
+        for (TripIntent t : trips.lockForPurge(now.minusHours(privacy.locationRetentionHours()), TripStatus.MATCHED,
+                now.minusHours(Math.max(privacy.locationRetentionHours(), MATCHED_SWEEP_HOURS)))) erase(t);
     }
     private TripIntent required(UUID id, boolean lock) {
         return (lock ? trips.lockById(id) : trips.findById(id)).orElseThrow(() -> ApiException.notFound("Trip"));

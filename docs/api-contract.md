@@ -36,7 +36,7 @@ ProximityTier 'NEAR' (≤200m) | 'EXTENDED' (200–500m)
 | RoomStatus | OPEN, COORDINATING, CONFIRMED, CLOSED, CANCELLED, EXPIRED |
 | ParticipantRole | HOST, MEMBER |
 | ParticipantStatus | ACTIVE, LEFT, REMOVED |
-| MemberStatus | ACTIVE, RESTRICTED |
+| MemberStatus | ACTIVE, RESTRICTED, WITHDRAWN (회원 탈퇴; nickname becomes `탈퇴회원-xxxxxxxx`, reserved) |
 | MemberRole | USER, ADMIN |
 | MessageType | TEXT, SYSTEM |
 | ReportTargetType | ROOM, MESSAGE, MEMBER |
@@ -62,19 +62,21 @@ READ_ONLY = {CONFIRMED, CLOSED, CANCELLED, EXPIRED}: no join, no messages (409 `
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| GET | `/api/auth/options` | — | `{ devLogin: boolean, kakao: boolean }` |
+| GET | `/api/auth/options` | — | `{ devLogin: boolean, kakao: boolean, devLoginPrefix: string | null }` — `devLoginPrefix` = `taximate.auth.dev-login-nickname-prefix` (`DEV_LOGIN_NICKNAME_PREFIX`, e.g. 샘플) or null |
 | POST | `/api/auth/kakao` | `{ code, redirectUri }` | `{ token, member: Member, isNew: boolean, suggestedNickname: string }`; allow-listed redirect only (400); invalid code 401 / provider failure 502 `KAKAO_AUTH_FAILED`. |
 | PUT | `/api/me/nickname` | `{ nickname: string(2–20) }` | Own `Member`; trimmed, unique, reserved admin names rejected (409 `NICKNAME_TAKEN`); role unchanged. |
-| POST | `/api/auth/dev-login` | `{ nickname: string(2–20) }` | `{ token: string, member: Member }` — creates member if new. Enabled only when `taximate.auth.dev-login-enabled`. Nicknames in `taximate.auth.admin-nicknames` get ADMIN. |
+| POST | `/api/auth/dev-login` | `{ nickname: string(2–20) }` | `{ token: string, member: Member }` — creates member if new. Enabled only when `taximate.auth.dev-login-enabled`. Nicknames in `taximate.auth.admin-nicknames` get ADMIN. When `devLoginPrefix` is set, only nicknames starting with it (or admin nicknames) are accepted, else 403 `DEV_LOGIN_RESTRICTED`; a DEV member renaming (`PUT /api/me/nickname`) must keep the prefix (400 `VALIDATION_FAILED`). |
 | PUT | `/api/me/gender` | `{ gender: MALE | FEMALE | UNDISCLOSED }` | Own `Member`; sets SELF; 409 `GENDER_SOURCE_LOCKED` for KAKAO. |
 | GET | `/api/me` | – | `Member` |
+| DELETE | `/api/me` | – | 204. **회원 탈퇴**: publishes `MemberWithdrawnEvent`; active trip cancelled, rooms left (hosted OPEN/COORDINATING rooms cancelled), own message bodies deleted, precise trip coordinates erased, consents/gender/kakao_id removed, nickname replaced by a non-identifying placeholder, status WITHDRAWN; all tokens invalid (401 afterwards). Report records are kept without the member's personal data. |
+| POST | `/api/me/age-confirmation` | `{ over14: true }` | Own `Member` (`ageConfirmed: true`); stores the confirmation time. `over14` false/missing → 400 `VALIDATION_FAILED`. |
 | POST | `/api/me/consents/location` | `{ policyVersion: string }` | `LocationConsent` |
 | DELETE | `/api/me/consents/location` | – | 204. Publishes `LocationConsentWithdrawnEvent` → active trips cancelled. |
 | POST | `/api/me/consents/services` | `{ policyVersion: string(1–32), items: ServiceItem[] }` | `ServicesConsent`. `items` must contain every required item (`KAKAO`, `TMAP`) else 400 `VALIDATION_FAILED`. Re-agreeing (same or newer version) replaces the current record; history rows are kept (withdrawn_at set). |
 | DELETE | `/api/me/consents/services` | – | 204. Marks the current record withdrawn. The app then asks again before the map screens. |
 
 ```ts
-Member          { authProvider: 'DEV' | 'KAKAO', gender: 'MALE' | 'FEMALE' | 'UNDISCLOSED' | null, genderSource: 'SELF' | 'KAKAO' | null, id, nickname, role: MemberRole, status: MemberStatus, locationConsent: LocationConsent | null, servicesConsent: ServicesConsent | null }
+Member          { authProvider: 'DEV' | 'KAKAO', gender: 'MALE' | 'FEMALE' | 'UNDISCLOSED' | null, genderSource: 'SELF' | 'KAKAO' | null, id, nickname, role: MemberRole, status: MemberStatus, locationConsent: LocationConsent | null, servicesConsent: ServicesConsent | null, ageConfirmed: boolean }
 LocationConsent { id, policyVersion, agreedAt }   // only current (non-withdrawn) consent is returned
 ServiceItem     = 'KAKAO' | 'TMAP'            // external services: Kakao Maps/Local/Mobility, TMAP pedestrian route
 ServicesConsent { id, policyVersion, items: ServiceItem[], agreedAt }   // only current (non-withdrawn) record

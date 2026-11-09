@@ -6,13 +6,36 @@ import { api, isMock } from '../../api';
 import { session } from '../../api/client';
 import { useAction, useApp } from '../../lib/app';
 import { formatTime } from '../../lib/format';
+import { demoPrefix, loadAuthOptions, nicknameValid, stripPrefix, useAuthOptions, withPrefix } from '../../lib/authOptions';
 import { ArrowIcon, CheckIcon, ChevronLeftIcon, InfoIcon } from '../components/icons';
 import { REQUIRED_SERVICE_ITEMS, type Member } from '../../api/contract';
+import type { LegalDocId } from '../../legal/documents';
+import { LegalOverlay } from './LegalScreen';
 
 export const SERVICES_NOTICE_VERSION = '2026-11-v1';
 
 export const LOCATION_POLICY_VERSION = '2026-11-v1';
-type Step = 'intro' | 'name' | 'gender' | 'consent' | 'services';
+
+/** Inline link that opens a policy over the flow, so nothing typed on the step is lost. */
+function LegalLink({ id, children }: { id: LegalDocId; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="font-semibold text-white/80 underline underline-offset-4">{children}</button>
+      {open && <LegalOverlay id={id} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+type Step = 'intro' | 'name' | 'age' | 'gender' | 'consent' | 'services';
+
+/** First onboarding step this member still has to do (age → gender → location → services), or null when done. */
+function nextStep(m: Member): Step | null {
+  if (!m.ageConfirmed) return 'age';
+  if (!m.gender) return 'gender';
+  if (!m.locationConsent) return 'consent';
+  if (!m.servicesConsent) return 'services';
+  return null;
+}
 
 /** Start (intro) → 사용자 이름 → 위치 정보 동의 → 외부 서비스 동의, one dark full-screen flow with cross-step motion. */
 export default function OnboardingScreen({ consentOnly = false, servicesOnly = false }: { consentOnly?: boolean; servicesOnly?: boolean }) {
@@ -23,10 +46,8 @@ export default function OnboardingScreen({ consentOnly = false, servicesOnly = f
   const navigate = useNavigate();
   useEffect(() => {
     if (!member || consentOnly || servicesOnly) return;
-    if (sessionStorage.getItem(kakaoPendingName) === member.id) setStep('name');
-    else if (!member.gender) setStep('gender');
-    else if (!member.locationConsent) setStep('consent');
-    else if (!member.servicesConsent) setStep('services');
+    const next = sessionStorage.getItem(kakaoPendingName) === member.id ? 'name' : nextStep(member);
+    if (next) setStep(next);
   }, [member?.id, loading, consentOnly, servicesOnly]);
 
   const go = (next: Step) => {
@@ -35,16 +56,18 @@ export default function OnboardingScreen({ consentOnly = false, servicesOnly = f
   };
 
   const only = consentOnly || servicesOnly;
+  const finish = (m: Member) => { const next = nextStep(m); if (next) go(next); else navigate('/', { replace: true }); };
   if (!only && session.get() && loading) return <Dark><div className="grid flex-1 place-items-center"><div className="spinner" style={{ borderColor: 'rgba(255,255,255,.15)', borderTopColor: '#FFD966' }} /></div></Dark>;
   // A saved session skips the intro entirely.
-  const onboarded = !!member?.gender && !!member?.locationConsent && !!member?.servicesConsent;
+  const onboarded = !!member && !nextStep(member);
   if (!only && member && onboarded && sessionStorage.getItem(kakaoPendingName) !== member.id && !loggedInHere.current) return <Navigate to="/" replace />;
 
   return (
     <Dark>
       {step === 'intro' && <Intro leaving={leaving} onStart={() => go('name')} />}
-      {step === 'name' && <NameStep leaving={leaving} onBack={() => go('intro')} onDone={m => { loggedInHere.current = true; if (!m.gender) go('gender'); else if (!m.locationConsent) go('consent'); else if (!m.servicesConsent) go('services'); else navigate('/', { replace: true }); }} />}
-      {step === 'gender' && <GenderStep onDone={m => { if (!m.locationConsent) go('consent'); else if (!m.servicesConsent) go('services'); else navigate('/', { replace: true }); }} />}
+      {step === 'name' && <NameStep leaving={leaving} onBack={() => go('intro')} onDone={m => { loggedInHere.current = true; finish(m); }} />}
+      {step === 'age' && <AgeStep leaving={leaving} onDone={m => { loggedInHere.current = true; finish(m); }} onSwitch={() => go('intro')} />}
+      {step === 'gender' && <GenderStep onDone={finish} />}
       {step === 'consent' && <ConsentStep leaving={leaving} />}
       {step === 'services' && <ServicesStep leaving={leaving} />}
     </Dark>
@@ -76,7 +99,7 @@ function Intro({ leaving, onStart }: { leaving: boolean; onStart(): void }) {
   const [authError, setAuthError] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    void api.identity.options().then(setOptions).catch(() => setAuthError('로그인 방법을 불러오지 못했어요. 새로고침해 주세요.'));
+    void loadAuthOptions().then(setOptions).catch(() => setAuthError('로그인 방법을 불러오지 못했어요. 새로고침해 주세요.'));
     const message = sessionStorage.getItem('taximate.login.message');
     if (message) { setAuthError(message); sessionStorage.removeItem('taximate.login.message'); }
   }, []);
@@ -137,26 +160,41 @@ function RouteArt({ leaving }: { leaving: boolean }) {
 function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): void; onDone(member: Member): void }) {
   const { member, setMember } = useApp();
   const { busy, run } = useAction();
-  const navigate = useNavigate();
+  const options = useAuthOptions();
+  // Demo accounts: the server's prefix is a fixed part of the name ("샘플_" + what the user types).
+  const prefix = demoPrefix(options, member);
   const [nickname, setNickname] = useState(member?.nickname ?? '');
+  const [over14, setOver14] = useState(false);
+  const needAge = !member?.ageConfirmed;
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { const t = setTimeout(() => input.current?.focus(), 450); return () => clearTimeout(t); }, []);
-  const trimmed = nickname.trim();
-  const valid = trimmed.length >= 2 && trimmed.length <= 20;
+  useEffect(() => { if (prefix) setNickname(n => stripPrefix(prefix, n)); }, [prefix]);
+  const typed = stripPrefix(prefix, nickname).trim();
+  const full = withPrefix(prefix, nickname);
+  const valid = nicknameValid(prefix, nickname) && (!needAge || over14);
 
+  // A failed confirmation keeps the member unconfirmed; onboarding then shows the age step on its own.
+  const confirmAge = async (m: Member) => m.ageConfirmed ? m : (await run(() => api.identity.confirmAge({ over14: true }))) ?? m;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!valid || busy) return;
     if (member) {
-      const updated = trimmed === member.nickname ? member : await run(() => api.identity.rename({ nickname: trimmed }));
+      const updated = full === member.nickname ? member : await run(() => api.identity.rename({ nickname: full }));
       if (!updated) return;
-      sessionStorage.removeItem(kakaoPendingName); setMember(updated); onDone(updated); return;
+      sessionStorage.removeItem(kakaoPendingName);
+      const confirmed = await confirmAge(updated);
+      setMember(confirmed); onDone(confirmed); return;
     }
-    const res = await run(() => api.identity.login({ nickname: trimmed }));
+    // With a demo prefix the backend accepts only "<prefix>_…" names — and admin names. Try the name as typed
+    // first (silently; it succeeds only for an admin), then the demo name.
+    let res: Awaited<ReturnType<typeof api.identity.login>> | undefined;
+    if (prefix && typed !== full) res = await api.identity.login({ nickname: typed }).catch(() => undefined);
+    if (!res) res = await run(() => api.identity.login({ nickname: full }));
     if (!res) return;
     session.set(res.token);
-    setMember(res.member);
-    onDone(res.member);
+    const confirmed = await confirmAge(res.member);
+    setMember(confirmed);
+    onDone(confirmed);
   };
 
   return (
@@ -166,25 +204,31 @@ function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): voi
       <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[2.75rem] short:text-[2.25rem] font-bold leading-[1.1] tracking-[-0.035em]`}>어떻게<br />불러드릴까요?</h1>
       <p {...rise(leaving, 120)} className={`${rise(leaving, 120).className} mt-4 text-[1.0625rem] leading-relaxed text-white/55`}>함께 탈 이웃에게 보이는 이름이에요.</p>
 
-      <div {...rise(leaving, 180)} className={`${rise(leaving, 180).className} mt-14`}>
+      <div {...rise(leaving, 180)} className={`${rise(leaving, 180).className} mt-14 short:mt-8`}>
         <label htmlFor="nickname" className="sr-only">사용자 이름</label>
-        <input
-          ref={input}
-          id="nickname"
-          value={nickname}
-          maxLength={20}
-          autoComplete="nickname"
-          onChange={e => setNickname(e.target.value)}
-          placeholder="사용자 이름"
-          className="w-full border-b-2 border-white/20 bg-transparent pb-3 text-[2.125rem] font-semibold tracking-tight text-white caret-sun outline-none transition-colors placeholder:text-white/20 focus:border-sun"
-        />
-        <div className="mt-3 flex justify-between text-[0.8125rem] text-white/40">
-          <span>{trimmed.length > 0 && trimmed.length < 2 ? '2자 이상 입력해 주세요' : '2–20자'}</span>
-          <span>{trimmed.length}/20</span>
+        <div className="flex items-center gap-2.5 border-b-2 border-white/20 pb-3 transition-colors focus-within:border-sun">
+          {prefix && <span className="shrink-0 select-none rounded-xl bg-sun/15 px-2.5 py-1 text-[1.375rem] font-bold tracking-tight text-sun" title="체험용 계정의 고정된 앞부분">{prefix}_</span>}
+          <input
+            ref={input}
+            id="nickname"
+            value={nickname}
+            maxLength={prefix ? 20 - prefix.length - 1 : 20}
+            autoComplete="nickname"
+            onChange={e => setNickname(stripPrefix(prefix, e.target.value))}
+            placeholder={prefix ? '이름' : '사용자 이름'}
+            className="min-w-0 flex-1 bg-transparent text-[2.125rem] font-semibold tracking-tight text-white caret-sun outline-none placeholder:text-white/20"
+          />
         </div>
+        <div className="mt-3 flex justify-between text-[0.8125rem] text-white/40">
+          <span>{typed.length > 0 && full.length < 2 ? '2자 이상 입력해 주세요' : '2–20자'}</span>
+          <span>{prefix && !typed ? 0 : full.length}/20</span>
+        </div>
+        {prefix && <p className="mt-2 text-[0.8125rem] text-white/60">체험용 계정은 '{prefix}_'로 시작해요</p>}
       </div>
 
       <div className={`mt-auto pt-10 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: leaving ? '0ms' : '240ms' }}>
+        {needAge && <AgeCheck on={over14} onToggle={() => setOver14(v => !v)} className="mb-5" />}
+        <p className="mb-4 text-center text-[0.8125rem] leading-relaxed text-white/50">계속하면 <LegalLink id="terms">이용약관</LegalLink>에 동의하고 <LegalLink id="privacy">개인정보 처리방침</LegalLink>을 확인한 것으로 봐요.</p>
         <button type="submit" className="btn-sun w-full" disabled={!valid || busy}>{busy ? '확인 중…' : '계속'}</button>
         <p className="mt-4 text-center text-xs leading-relaxed text-white/35">
           {member?.authProvider === 'KAKAO' ? '카카오 이름을 가져왔어요. 원하는 이름으로 바꿀 수 있어요.' : '닉네임으로 체험하는 개발용 로그인이에요.'}
@@ -192,6 +236,48 @@ function NameStep({ leaving, onBack, onDone }: { leaving: boolean; onBack(): voi
         </p>
       </div>
     </form>
+  );
+}
+
+// ---------------------------------------------------------------- 만 14세 이상 확인
+
+function AgeCheck({ on, onToggle, className = '' }: { on: boolean; onToggle(): void; className?: string }) {
+  return (
+    <div className={className}>
+      <button type="button" role="checkbox" aria-checked={on} onClick={onToggle}
+        className={`flex w-full items-center justify-between gap-4 rounded-2xl border px-5 py-4 text-left transition ${on ? 'border-sun/60 bg-sun/[.06]' : 'border-white/15'}`}>
+        <span className="text-[1.0625rem] font-semibold">만 14세 이상입니다 <span className="text-[0.8125rem] font-medium text-sun">(필수)</span></span>
+        <Check on={on} />
+      </button>
+      <p className="mt-2 px-1 text-[0.8125rem] text-white/45">만 14세 미만은 이용할 수 없어요.</p>
+    </div>
+  );
+}
+
+/** Existing members who never confirmed their age (the name step asks everyone who passes through it). */
+function AgeStep({ leaving, onDone, onSwitch }: { leaving: boolean; onDone(member: Member): void; onSwitch(): void }) {
+  const { setMember, logout } = useApp();
+  const { busy, run } = useAction();
+  const [over14, setOver14] = useState(false);
+  const submit = async () => {
+    const updated = await run(() => api.identity.confirmAge({ over14: true }));
+    if (!updated) return;
+    setMember(updated); onDone(updated);
+  };
+  return (
+    <div className="flex min-h-full flex-1 flex-col px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(40px,env(safe-area-inset-top))]">
+      <div className="h-11" />
+      <p {...rise(leaving, 0)} className={`${rise(leaving, 0).className} mt-10 short:mt-5 text-[0.9375rem] font-semibold text-sun`}>시작하기 전에</p>
+      <h1 {...rise(leaving, 60)} className={`${rise(leaving, 60).className} mt-3 text-[2.75rem] short:text-[2.25rem] font-bold leading-[1.1] tracking-[-0.035em]`}>나이를<br />확인할게요</h1>
+      <p {...rise(leaving, 120)} className={`${rise(leaving, 120).className} mt-4 text-[1.0625rem] leading-relaxed text-white/55`}>택시메이트는 만 14세 이상만 이용할 수 있어요. 한 번만 확인하면 돼요.</p>
+
+      <div className={`mt-auto pt-10 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: leaving ? '0ms' : '200ms' }}>
+        <AgeCheck on={over14} onToggle={() => setOver14(v => !v)} className="mb-5" />
+        <button type="button" className="btn-sun w-full" disabled={!over14 || busy} onClick={submit}>{busy ? '확인 중…' : '계속'}</button>
+        <button type="button" className="mt-4 w-full py-2 text-center text-sm text-white/50 underline underline-offset-4"
+          onClick={() => { sessionStorage.removeItem(kakaoPendingName); logout(); onSwitch(); }}>다른 계정으로 시작하기</button>
+      </div>
+    </div>
   );
 }
 
@@ -249,6 +335,7 @@ function ConsentStep({ leaving }: { leaving: boolean }) {
       </ol>
 
       <div className={`mt-auto pt-10 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: '420ms' }}>
+        <p className="mb-4 text-center text-[0.8125rem] text-white/50"><LegalLink id="location">위치기반서비스 이용약관</LegalLink><span className="mx-2 text-white/25">·</span><LegalLink id="privacy">개인정보 처리방침</LegalLink></p>
         {consent ? (
           <>
             <p className="mb-4 text-center text-[0.8125rem] text-white/50">{formatTime(consent.agreedAt)}에 동의했어요 · 버전 {consent.policyVersion}</p>
@@ -358,6 +445,7 @@ function ServicesStep({ leaving }: { leaving: boolean }) {
       </ul>
 
       <div className={`mt-auto pt-8 ${leaving ? 'animate-sink' : 'animate-rise'}`} style={{ animationDelay: '420ms' }}>
+        <p className="mb-4 text-center text-[0.8125rem] text-white/50"><LegalLink id="privacy">개인정보 처리방침</LegalLink>에서 외부로 보내는 정보를 자세히 볼 수 있어요</p>
         {agreedAt && <p className="mb-4 text-center text-[0.8125rem] text-white/50">{formatTime(agreedAt)}에 동의했어요 · 버전 {consent!.policyVersion}</p>}
         {agreedAt ? (
           <div className="flex gap-3">

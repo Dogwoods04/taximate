@@ -27,7 +27,7 @@ export type ProximityTier = 'NEAR' | 'EXTENDED';
 
 export type ErrorCode =
   | 'KAKAO_AUTH_FAILED' | 'NICKNAME_TAKEN'
-  | 'VALIDATION_FAILED' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'MEMBER_RESTRICTED'
+  | 'VALIDATION_FAILED' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'MEMBER_RESTRICTED' | 'DEV_LOGIN_RESTRICTED'
   | 'LOCATION_CONSENT_REQUIRED' | 'ACTIVE_TRIP_EXISTS' | 'TRIP_NOT_SEARCHABLE' | 'ROUTE_UNAVAILABLE'
   | 'ROUTE_EXPIRED' | 'ROOM_NOT_JOINABLE' | 'ROOM_FULL' | 'ROOM_READ_ONLY' | 'ALREADY_IN_ROOM'
   | 'TERMS_VERSION_MISMATCH' | 'MEETING_POINT_REQUIRED' | 'LOCK_TIMEOUT' | 'EXTERNAL_API_ERROR'
@@ -39,7 +39,7 @@ export type TripStatus = 'DRAFT' | 'SEARCHING' | 'MATCHED' | 'NO_MATCH' | 'CANCE
 export type RoomStatus = 'OPEN' | 'COORDINATING' | 'CONFIRMED' | 'CLOSED' | 'CANCELLED' | 'EXPIRED';
 export type ParticipantRole = 'HOST' | 'MEMBER';
 export type ParticipantStatus = 'ACTIVE' | 'LEFT' | 'REMOVED';
-export type MemberStatus = 'ACTIVE' | 'RESTRICTED';
+export type MemberStatus = 'ACTIVE' | 'RESTRICTED' | 'WITHDRAWN';
 export type MemberRole = 'USER' | 'ADMIN';
 export type MessageType = 'TEXT' | 'SYSTEM';
 export type ReportTargetType = 'ROOM' | 'MESSAGE' | 'MEMBER';
@@ -52,7 +52,8 @@ export const ROOM_JOINABLE: RoomStatus[] = ['OPEN', 'COORDINATING'];
 export const ROOM_READ_ONLY: RoomStatus[] = ['CONFIRMED', 'CLOSED', 'CANCELLED', 'EXPIRED'];
 
 // ---------- identity ----------
-export interface AuthOptions { devLogin: boolean; kakao: boolean }
+/** devLoginPrefix: when set, nickname login only accepts nicknames starting with it (demo accounts); admin names excepted. */
+export interface AuthOptions { devLogin: boolean; kakao: boolean; devLoginPrefix: string | null }
 export interface KakaoLoginRequest { code: string; redirectUri: string }
 export interface KakaoLoginResponse extends DevLoginResponse { isNew: boolean; suggestedNickname: string }
 export interface DevLoginRequest { nickname: string }
@@ -75,6 +76,8 @@ export interface Member {
   status: MemberStatus;
   locationConsent: LocationConsent | null;
   servicesConsent: ServicesConsent | null;
+  /** Confirmed "만 14세 이상" at signup (POST /api/me/age-confirmation). Onboarding asks until true. */
+  ageConfirmed: boolean;
 }
 export interface LocationConsentRequest { policyVersion: string }
 

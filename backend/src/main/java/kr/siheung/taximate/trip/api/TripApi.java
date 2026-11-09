@@ -39,6 +39,14 @@ public interface TripApi {
      */
     void releaseToSearching(UUID tripId);
 
+    /**
+     * Called by ride-room when a room reaches CLOSED / CANCELLED / EXPIRED: the ride's purpose has ended, so
+     * precise coordinates of every listed trip that is no longer ACTIVE (MATCHED, CANCELLED, EXPIRED) are
+     * destroyed now (origin/destination, place names/addresses, route path). ACTIVE trips (released back to
+     * searching) are left untouched. Idempotent; missing ids are skipped.
+     */
+    void eraseEndedLocations(Collection<UUID> tripIds);
+
     /** For operator metrics. Counts trips created at or after {@code since}, grouped by current status. */
     TripStats statsSince(OffsetDateTime since);
 

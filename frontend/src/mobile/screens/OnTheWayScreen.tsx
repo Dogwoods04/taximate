@@ -472,12 +472,12 @@ function Chat({ room, onSaved, roomId, readOnly, messages, myId, onSent, onRepor
           return (
             <div key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
               {!mine && <span className="mb-1 ml-1 text-xs font-medium text-mute">{m.senderNickname}</span>}
-              <div className={`max-w-[80%] whitespace-pre-wrap break-words rounded-[20px] px-4 py-2.5 text-[0.9375rem] leading-snug ${m.hidden ? 'bg-fog-soft italic text-mute' : mine ? 'rounded-br-md bg-ink text-white' : 'rounded-bl-md bg-fog'}`}>
-                {m.hidden ? '운영 정책에 따라 가려진 메시지예요.' : m.body}
+              <div className={`max-w-[80%] whitespace-pre-wrap break-words rounded-[20px] px-4 py-2.5 text-[0.9375rem] leading-snug ${m.hidden || m.body === null ? 'bg-fog-soft italic text-mute' : mine ? 'rounded-br-md bg-ink text-white' : 'rounded-bl-md bg-fog'}`}>
+                {m.senderNickname?.startsWith('탈퇴회원-') ? '탈퇴한 이웃의 메시지예요.' : m.hidden ? '운영 정책에 따라 가려진 메시지예요.' : m.body ?? '삭제된 메시지예요.'}
               </div>
               <div className="mt-0.5 flex gap-2 px-1 text-[0.625rem] text-mute">
                 <span>{formatClock(m.createdAt)}</span>
-                {!mine && !m.hidden && <button type="button" className="underline" onClick={() => onReport({ type: 'MESSAGE', id: m.id, preview: m.body ?? '' })}>신고</button>}
+                {!mine && !m.hidden && m.body !== null && <button type="button" className="underline" onClick={() => onReport({ type: 'MESSAGE', id: m.id, preview: m.body ?? '' })}>신고</button>}
               </div>
             </div>
           );

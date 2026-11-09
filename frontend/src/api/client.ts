@@ -13,6 +13,10 @@ export interface ApiClient {
     login(body: C.DevLoginRequest): Promise<C.DevLoginResponse>;
     me(): Promise<C.Member>;
     setGender(body: { gender: C.Gender }): Promise<C.Member>;
+    /** "만 14세 이상" confirmation (POST /me/age-confirmation). */
+    confirmAge(body: { over14: true }): Promise<C.Member>;
+    /** 회원 탈퇴 (DELETE /me); the token is invalid afterwards. */
+    deleteAccount(): Promise<void>;
     agree(body: C.LocationConsentRequest): Promise<C.LocationConsent>;
     withdraw(): Promise<void>;
     agreeServices(body: C.ServicesConsentRequest): Promise<C.ServicesConsent>;

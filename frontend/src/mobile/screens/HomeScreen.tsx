@@ -314,7 +314,7 @@ function Menu({ onClose }: { onClose(): void }) {
   const navigate = useNavigate();
   const { shown, close } = useSlideIn(onClose);
   const go = (path: string) => { close(); setTimeout(() => navigate(path), 200); };
-  const items: [string, string][] = [['내 정보', '/me'], ['내 방', '/me/rooms'], ['위치 정보 동의', '/consent'], ['외부 서비스 이용', '/services']];
+  const items: [string, string][] = [['내 정보', '/me'], ['내 방', '/me/rooms'], ['위치 정보 동의', '/consent'], ['외부 서비스 이용', '/services'], ['약관 및 정책', '/legal']];
   if (member?.role === 'ADMIN') items.push(['운영자', '/admin']);
   return (
     <FramePortal>

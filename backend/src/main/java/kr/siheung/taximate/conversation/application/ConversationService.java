@@ -55,6 +55,24 @@ public class ConversationService {
     public MessageTarget target(UUID id) { Message m=message(id); return new MessageTarget(m.senderId,m.body.substring(0,Math.min(80,m.body.length()))); }
     public void requireVisibleTarget(UUID id,UUID requester) { rooms.requireActiveParticipant(message(id).roomId,requester); }
     public void hide(UUID id) { Message m=message(id); m.hidden=true; events.publishEvent(new SocketEvent(m.roomId,"MESSAGE_HIDDEN",Map.of("messageId",id))); }
+    /** Ids of messages the member sent (any state); moderation uses it to scrub report previews. */
+    public List<UUID> messageIdsBySender(UUID memberId) {
+        return em.createQuery("select m.id from Message m where m.senderId=:member",UUID.class).setParameter("member",memberId).getResultList();
+    }
+    /**
+     * 회원 탈퇴: the member's message bodies are destroyed but the rows stay so threads/cursors don't break.
+     * They are represented exactly like moderator-hidden messages (body null, hidden true in the API);
+     * the column is NOT NULL, so the stored body becomes the empty string.
+     */
+    @EventListener @org.springframework.core.annotation.Order(30)
+    public void memberWithdrawn(kr.siheung.taximate.identity.api.MemberWithdrawnEvent e) {
+        List<Message> mine=em.createQuery("from Message where senderId=:member",Message.class).setParameter("member",e.memberId()).getResultList();
+        for(Message m:mine) {
+            boolean wasVisible=!m.hidden;
+            m.body=""; m.hidden=true;
+            if(wasVisible) events.publishEvent(new SocketEvent(m.roomId,"MESSAGE_HIDDEN",Map.of("messageId",m.id)));
+        }
+    }
     @Scheduled(cron="0 0 4 * * *",zone="Asia/Seoul") public void retain() {
         List<UUID> ids=rooms.endedBefore(OffsetDateTime.now(clock).minusDays(props.retentionDays()));
         if(!ids.isEmpty()) em.createQuery("delete from Message where roomId in :ids").setParameter("ids",ids).executeUpdate();

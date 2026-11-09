@@ -20,6 +20,7 @@ public class TripSpatialQuery implements MatchingTrips {
     }
     @Override @Transactional(readOnly=true)
     public List<NearbyTrip> findNearby(TripIntentView mine, int maxRadiusMeters) {
+        if (mine.origin() == null || mine.destination() == null) return List.of();   // ended trip, location destroyed
         var params = Map.of("me", mine.requesterId(), "olat", mine.origin().location().lat(),
                 "olng", mine.origin().location().lng(), "dlat", mine.destination().location().lat(),
                 "dlng", mine.destination().location().lng(), "maxR", maxRadiusMeters);

@@ -15,8 +15,14 @@ public interface TripRepository extends JpaRepository<TripIntent, UUID> {
     Optional<TripIntent> lockById(@Param("id") UUID id);
     @Lock(LockModeType.PESSIMISTIC_WRITE) @Query("select t from TripIntent t where t.status in :statuses and t.expiresAt < :now order by t.id")
     List<TripIntent> lockExpired(@Param("statuses") Collection<TripStatus> statuses, @Param("now") OffsetDateTime now);
-    @Lock(LockModeType.PESSIMISTIC_WRITE) @Query("select t from TripIntent t where t.endedAt < :cutoff and t.originLat is not null order by t.id")
-    List<TripIntent> lockForPurge(@Param("cutoff") OffsetDateTime cutoff);
+    /**
+     * Safety-net sweep: ended trips that still hold coordinates. MATCHED trips are normally erased when their room
+     * ends; while the room may still be CONFIRMED they are only swept once their own window is long past.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE) @Query("select t from TripIntent t where t.endedAt <= :cutoff and (t.originLat is not null or t.destinationLat is not null) and (t.status <> :matched or t.expiresAt < :matchedCutoff) order by t.id")
+    List<TripIntent> lockForPurge(@Param("cutoff") OffsetDateTime cutoff, @Param("matched") TripStatus matched, @Param("matchedCutoff") OffsetDateTime matchedCutoff);
+    @Query("select t.id from TripIntent t where t.requesterId=:memberId order by t.id")
+    List<UUID> findIdsByRequester(@Param("memberId") UUID memberId);
     @Query("select t.status, count(t) from TripIntent t where t.createdAt >= :since group by t.status")
     List<Object[]> countsSince(@Param("since") OffsetDateTime since);
 }

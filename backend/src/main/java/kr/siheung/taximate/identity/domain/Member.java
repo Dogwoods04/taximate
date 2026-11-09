@@ -19,4 +19,7 @@ public class Member {
     @Enumerated(EnumType.STRING) @Column(nullable=false, length=20) public MemberStatus status;
     @Column(length=1000) public String restrictedReason;
     @Column(nullable=false) public OffsetDateTime createdAt;
+    /** Self-declared "over 14" confirmation time (null = not confirmed). */
+    public OffsetDateTime ageConfirmedAt;
+    public OffsetDateTime withdrawnAt;
 }

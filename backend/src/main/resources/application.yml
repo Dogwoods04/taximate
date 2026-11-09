@@ -46,6 +46,7 @@ taximate:
   auth:
     dev-login-enabled: ${DEV_LOGIN_ENABLED:true}
     admin-nicknames: ${ADMIN_NICKNAMES:admin}
+    dev-login-nickname-prefix: ${DEV_LOGIN_NICKNAME_PREFIX:}   # e.g. 샘플 — nickname login only for these demo names (+ admin names); empty = any
     kakao:
       enabled: ${KAKAO_LOGIN_ENABLED:}
       rest-api-key: ${KAKAO_REST_API_KEY:}
@@ -56,7 +57,7 @@ taximate:
   privacy:
     coordinate-decimals: 3            # ~110m grid for coordinates shown to other users
     path-trim-meters: 200             # trim route ends shown to other users
-    location-retention-hours: 24      # precise coords nulled this long after trip ends
+    location-retention-hours: 0       # precise trip coords are destroyed when the trip's purpose ends; >0 only delays the safety-net sweep
   kakao:
     mode: ${KAKAO_MODE:mock}          # mock | kakao
     rest-api-key: ${KAKAO_REST_API_KEY:}
