@@ -44,6 +44,6 @@ function RequireAuth({ children, admin = false, consent = false }: { children: R
   if (admin && member.role !== 'ADMIN') return <Navigate to="/" replace />;
   // Map screens need both agreements (location notice, external services). Anyone who hasn't finished them —
   // including people with a saved session from before a step was added — starts over from the Start screen.
-  if (consent && (sessionStorage.getItem(kakaoPendingName) === member.id || !member.ageConfirmed || !member.gender || !member.locationConsent || !member.servicesConsent)) return <Navigate to="/start" replace state={{ from: location.pathname }} />;
+  if (consent && (sessionStorage.getItem(kakaoPendingName) === member.id || !member.ageConfirmed || (member.gender !== 'MALE' && member.gender !== 'FEMALE') || !member.locationConsent || !member.servicesConsent)) return <Navigate to="/start" replace state={{ from: location.pathname }} />;
   return <>{children}</>;
 }

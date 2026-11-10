@@ -15,7 +15,7 @@ export default function GenderStep({ onDone, profile = false }: { onDone?(member
   // Demo (DEV) accounts keep the server's prefix as a fixed part of the name.
   const prefix = demoPrefix(options, member);
   const [nickname, setNickname] = useState(member?.nickname ?? '');
-  const [gender, setGender] = useState<Gender | null>(member?.gender ?? null);
+  const [gender, setGender] = useState<Gender | null>(member?.gender === 'MALE' || member?.gender === 'FEMALE' ? member.gender : null);
   const [withdrawing, setWithdrawing] = useState(false);
   const locked = member?.genderSource === 'KAKAO';
   const full = withPrefix(prefix, nickname);
@@ -48,14 +48,13 @@ export default function GenderStep({ onDone, profile = false }: { onDone?(member
       {prefix && <p className="text-[0.8125rem] text-white/50">체험용 계정은 '{prefix}_'로 시작해요</p>}
     </section>}
     <h1 className="mt-3 text-[2.375rem] font-bold leading-tight tracking-tight">성별을 알려 주세요</h1>
-    <p className="mt-4 text-[0.9375rem] leading-relaxed text-white/60">같은 성별끼리만 타는 방에 쓰여요. 다른 사람에게는 보이지 않아요.</p>
+    <p className="mt-4 text-[0.9375rem] leading-relaxed text-white/60">택시 동승은 같은 성별끼리만 할 수 있어서, 같은 성별의 방만 보여 드려요. 성별은 다른 사람에게 보이지 않아요.</p>
     <div role="radiogroup" aria-label="성별" className="mt-10 space-y-3">
-      {([['MALE', '남성'], ['FEMALE', '여성'], ['UNDISCLOSED', '선택 안 함']] as const).map(([value, label]) =>
+      {([['MALE', '남성'], ['FEMALE', '여성']] as const).map(([value, label]) =>
         <button key={value} type="button" role="radio" aria-checked={gender === value} disabled={locked || busy} onClick={() => setGender(value)} className={`flex w-full items-center justify-between rounded-2xl border px-5 py-5 text-[1.125rem] font-semibold ${gender === value ? 'border-sun bg-sun/10 text-sun' : 'border-white/20 text-white/80'}`}>
           {label}<span aria-hidden>{gender === value ? '●' : '○'}</span>
         </button>)}
     </div>
-    {gender === 'UNDISCLOSED' && <p className="mt-4 text-sm leading-relaxed text-white/60">선택 안 함으로도 이용할 수 있어요. 같은 성별만 타는 방은 만들거나 찾고 참여할 수 없어요.</p>}
     {locked && <p className="mt-4 text-sm text-white/60">카카오에서 가져온 성별은 여기서 변경할 수 없어요.</p>}
     <button type="button" disabled={!gender || busy || locked} onClick={save} className="btn-sun mt-auto w-full shrink-0 translate-y-0">{busy ? '저장하는 중…' : profile ? '저장하기' : '계속'}</button>
     {profile && <button type="button" onClick={() => setWithdrawing(true)} className="mx-auto mt-5 shrink-0 py-2 text-[0.8125rem] text-white/40 underline underline-offset-4">회원 탈퇴</button>}

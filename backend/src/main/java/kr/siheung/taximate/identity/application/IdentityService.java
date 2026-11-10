@@ -50,7 +50,9 @@ public class IdentityService implements IdentityApi, TokenAuthenticator {
     public MemberDto setGender(UUID id,Gender gender) {
         Member m=em.find(Member.class,id,LockModeType.PESSIMISTIC_WRITE); requireActive(id);
         if(m.genderSource==GenderSource.KAKAO) throw new ApiException(ErrorCode.GENDER_SOURCE_LOCKED,"Kakao gender cannot be changed manually");
-        m.gender=Objects.requireNonNull(gender); m.genderSource=GenderSource.SELF; m.genderUpdatedAt=OffsetDateTime.now(clock);
+        // Rooms are same-gender only, so a member must choose male or female to ride.
+        if(gender!=Gender.MALE && gender!=Gender.FEMALE) throw new ApiException(ErrorCode.VALIDATION_FAILED,"남성 또는 여성을 선택해 주세요");
+        m.gender=gender; m.genderSource=GenderSource.SELF; m.genderUpdatedAt=OffsetDateTime.now(clock);
         return me(id);
     }
     public LoginDto login(String nickname) {

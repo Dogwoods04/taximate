@@ -148,7 +148,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
       await minWait;
       if (my !== seq.current) return;
       setResult(res);
-      setSelectedId(res.candidates[0]?.roomId ?? null);
+      setSelectedId(res.candidates[0]?.roomId ?? res.otherTimeCandidates?.[0]?.roomId ?? null);
       setPhase('ready');
     } catch (error) {
       if (my !== seq.current) return;
@@ -158,7 +158,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
       if (isApiError(error, 'TRIP_NOT_SEARCHABLE')) { setPhase('unsearchable'); return; }
       onError(error);
       setPhase('ready');
-      setResult({ tripId: t.id, generatedAt: new Date().toISOString(), policy: { priorityRadiusMeters: 200, maxRadiusMeters: 500 }, candidates: [], similarSearchingCount: 0 });
+      setResult({ tripId: t.id, generatedAt: new Date().toISOString(), policy: { priorityRadiusMeters: 200, maxRadiusMeters: 500 }, candidates: [], similarSearchingCount: 0, otherTimeCandidates: [] });
     }
   }, [onError]);
 
@@ -325,7 +325,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
     const joined = await run(() => api.rooms.join(c.roomId, { tripId: trip.id }));
     if (joined) { toast('방에 참여했어요!', 'info'); finish(joined, joined.routePreview.length > 1 ? joined.routePreview : c.routePreview); }
   };
-  const create = async (note: string, luggageAllowed: boolean, party: number, sameGenderOnly: boolean) => {
+  const create = async (note: string, luggageAllowed: boolean, party: number) => {
     if (!trip) return;
     const room = await run(async () => {
       let source = trip;
@@ -337,7 +337,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
         tripRef.current = source;
         setTrip(source);
       }
-      return api.rooms.create({ sourceTripId: source.id, sameGenderOnly, capacity: CAPACITY, terms: { farePolicy: 'EQUAL_SPLIT', luggageAllowed, note: note.trim() || null } });
+      return api.rooms.create({ sourceTripId: source.id, sameGenderOnly: true, capacity: CAPACITY, terms: { farePolicy: 'EQUAL_SPLIT', luggageAllowed, note: note.trim() || null } });
     });
     if (room) { toast('방을 열었어요. 만날 장소를 정해 주세요.', 'info'); finish(room, trip.route?.path ?? room.routePreview); }
   };
@@ -370,7 +370,8 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
         {mode === 'preview' && preview && !searching ? (
           <RoomPreview room={preview} detail={previewDetail} walk={walk} busy={busy} onClose={close} onGo={askJoin} onCancelWalk={cancelWalk} onConfirm={confirmJoin} />
         ) : mode === 'detail' && detail && !searching ? (
-          <RoomIntro candidate={detail} trip={trip} busy={busy} onBack={closeDetail} onJoin={() => join(detail)} />
+          <RoomIntro candidate={detail} trip={trip} busy={busy} departureText={departureText}
+            otherTime={!!result?.otherTimeCandidates?.some(c => c.roomId === detail.roomId)} onBack={closeDetail} onJoin={() => join(detail)} />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col px-6 pb-[max(20px,env(safe-area-inset-bottom))] pt-5">
             <Fields origin={origin} destination={destination} active={searching} onActivate={setSearching} onSwap={swap} disabled={busy} />
@@ -542,10 +543,12 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
   if (phase === 'unsearchable') return <div className={`${body} justify-center`}><Notice tone="warn">이 이동은 지금 동행을 찾을 수 없는 상태예요. 출발지나 도착지를 다시 검색해 주세요.</Notice></div>;
 
   const candidates = result?.candidates ?? [];
+  // No room in my time window: rooms on the same route that leave at another time (nearest time first).
+  const others = candidates.length ? [] : result?.otherTimeCandidates ?? [];
   return (
     <div className={body}>
       <div className="flex items-center justify-between">
-        <h3 className="text-[1.1875rem] font-bold tracking-tight">{candidates.length ? '비슷한 동선이 있어요' : '아직 비슷한 동선의 방이 없어요'}</h3>
+        <h3 className="text-[1.1875rem] font-bold tracking-tight">{candidates.length ? '비슷한 동선이 있어요' : others.length ? '다른 시간에 출발하는 방' : '아직 비슷한 동선의 방이 없어요'}</h3>
         <div className="flex items-center gap-1">
           <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-fog text-ink transition active:rotate-180" onClick={onRefresh} aria-label="다시 찾기"><RefreshIcon size={18} /></button>
         </div>
@@ -553,6 +556,10 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
       {candidates.length ? (
         <div ref={strip} className="no-scrollbar -mx-6 mt-3 flex shrink-0 snap-x snap-mandatory scroll-px-6 gap-4 overflow-x-auto px-6 pb-1">
           {candidates.map(c => <CandidateCard key={c.roomId} c={c} selected={c.roomId === selectedId} onOpen={() => onOpen(c)} />)}
+        </div>
+      ) : others.length ? (
+        <div ref={strip} className="no-scrollbar -mx-6 mt-3 flex shrink-0 snap-x snap-mandatory scroll-px-6 gap-4 overflow-x-auto px-6 pb-1">
+          {others.map(c => <CandidateCard key={c.roomId} c={c} otherTime selected={c.roomId === selectedId} onOpen={() => onOpen(c)} />)}
         </div>
       ) : (
         <div className="mt-3 flex flex-1 flex-col justify-center rounded-card bg-fog-soft px-6 py-5">
@@ -567,14 +574,14 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
   );
 }
 
-function CandidateCard({ c, selected, onOpen }: { c: MatchCandidate; selected: boolean; onOpen(): void }) {
+function CandidateCard({ c, selected, otherTime = false, onOpen }: { c: MatchCandidate; selected: boolean; otherTime?: boolean; onOpen(): void }) {
   const near = c.tier === 'NEAR';
   const fare = perPersonFare(c.room.estimatedTaxiFareWon, riders(c.room) + 1);
   return (
     <button type="button" onClick={onOpen}
       className={`relative w-[72%] shrink-0 snap-start overflow-hidden rounded-card border bg-white text-left transition active:scale-[.98] ${selected ? 'border-ink' : 'border-line'}`}>
       <div className={`mr-[10%] rounded-br-card pb-3 pl-5 pr-4 pt-3.5 ${near ? 'bg-sun' : 'bg-fog'}`}>
-        <div className="text-[0.75rem] font-semibold text-ink/60">{near ? '가까운 방 · 200m 이내' : '조금 더 넓게 · 500m 이내'}</div>
+        <div className="text-[0.75rem] font-semibold text-ink/60">{otherTime ? `${formatTime(c.room.departureAt)} 출발` : near ? '가까운 방 · 200m 이내' : '조금 더 넓게 · 500m 이내'}</div>
         <GenderChip enabled={c.room.sameGenderOnly} />
         <CardTags tags={shortTags(c)} />
       </div>
@@ -584,13 +591,19 @@ function CandidateCard({ c, selected, onOpen }: { c: MatchCandidate; selected: b
           <span className="shrink-0 text-[1.0625rem] font-bold">{fare != null ? formatWon(fare) : '-'}</span>
         </div>
         <div className="mt-1 flex items-center gap-2.5 whitespace-nowrap text-[0.9375rem] text-mute">
-          <span className="min-w-0 truncate">{formatDiff(c.departureDiffMinutes).replace(/\s*출발$/, '')}</span>
+          <span className="min-w-0 truncate">{otherTime ? formatGap(c.departureDiffMinutes) : formatDiff(c.departureDiffMinutes).replace(/\s*출발$/, '')}</span>
           <span className="flex shrink-0 items-center gap-1"><PersonIcon size={15} /> {riders(c.room)}/{c.room.capacity}</span>
           <span className="shrink-0 font-semibold text-ink">빈 자리 {c.seatsLeft}</span>
         </div>
       </div>
     </button>
   );
+}
+
+/** "2시간 10분 늦게" / "45분 일찍": an other-time room's gap from my departure. */
+function formatGap(raw: number): string {
+  const min = Math.abs(Math.round(raw)), h = Math.floor(min / 60), m = min % 60;
+  return `${h ? `${h}시간${m ? ` ${m}분` : ''}` : `${m}분`} ${raw > 0 ? '늦게' : '일찍'}`;
 }
 
 /** Short card tags; the full sentences stay in the room intro. */
@@ -665,14 +678,11 @@ function ConditionRow({ departureText, passengers, onChange }: { departureText: 
 
 // ---------------------------------------------------------------- new room
 
-function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: TripIntent; departureText: string; busy: boolean; onCancel(): void; onCreate(note: string, luggage: boolean, party: number, sameGenderOnly: boolean): void }) {
+function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: TripIntent; departureText: string; busy: boolean; onCancel(): void; onCreate(note: string, luggage: boolean, party: number): void }) {
   const [note, setNote] = useState('');
   /** People riding with the host, host included. At least one seat must stay open for others. */
   const [party, setParty] = useState(Math.min(trip.passengerCount, CAPACITY - 1));
   const [luggage, setLuggage] = useState(true);
-  const { member } = useApp();
-  const eligible = member?.gender === 'MALE' || member?.gender === 'FEMALE';
-  const [sameGenderOnly, setSameGenderOnly] = useState(false);
   const fare = trip.route?.taxiFareWon ?? null;
   return (
     <div className="mt-6 flex min-h-0 flex-1 flex-col">
@@ -689,10 +699,7 @@ function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: T
           <span className="pointer-events-none absolute bottom-2.5 right-4 text-xs text-mute">{note.length}/200</span>
         </div>
         <div className="mt-2"><Toggle checked={luggage} onChange={setLuggage} label="큰 짐(캐리어 등) 괜찮아요" /></div>
-        <div className="mt-2 rounded-card border border-line px-4 py-3">
-          <Toggle checked={eligible && sameGenderOnly} disabled={!eligible} onChange={setSameGenderOnly} label="같은 성별만" />
-          {!eligible && <p className="mt-2 text-[0.8125rem] leading-relaxed text-mute">성별을 선택하지 않으면 이 방을 만들거나 찾고 참여할 수 없어요. 메뉴의 내 정보에서 변경할 수 있어요.</p>}
-        </div>
+        <p className="mt-2 rounded-card border border-line px-4 py-3 text-[0.8125rem] leading-relaxed text-mute-dark">택시 동승은 같은 성별끼리만 할 수 있어요. 이 방은 나와 같은 성별의 이웃에게만 보이고, 그분들만 참여할 수 있어요.</p>
         <div className="mt-2 rounded-card border border-line px-4 py-3">
           <div className="flex items-center gap-3 text-[0.9375rem]">
             <PersonIcon size={20} className="shrink-0 text-mute" />
@@ -710,14 +717,14 @@ function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: T
           요금은 똑같이 나눠요{fare != null && <> · 예상 총 {formatWon(fare)} (다 차면 1인 {formatWon(perPersonFare(fare, CAPACITY)!)})</>}. 출발 {formatTime(trip.desiredDepartureAt)}.
         </p>
       </div>
-      <button type="button" className="btn-ink mt-4 w-full shrink-0" disabled={busy} onClick={() => onCreate(note, luggage, party, eligible && sameGenderOnly)}>{busy ? '방을 여는 중…' : '방 만들기'}</button>
+      <button type="button" className="btn-ink mt-4 w-full shrink-0" disabled={busy} onClick={() => onCreate(note, luggage, party)}>{busy ? '방을 여는 중…' : '방 만들기'}</button>
     </div>
   );
 }
 
 // ---------------------------------------------------------------- room introduction (expanded sheet)
 
-function RoomIntro({ candidate, trip, busy, onBack, onJoin }: { candidate: MatchCandidate; trip: TripIntent | null; busy: boolean; onBack(): void; onJoin(): void }) {
+function RoomIntro({ candidate, trip, busy, otherTime, departureText, onBack, onJoin }: { candidate: MatchCandidate; trip: TripIntent | null; busy: boolean; otherTime: boolean; departureText: string; onBack(): void; onJoin(): void }) {
   const onError = useErrorHandler();
   const [room, setRoom] = useState<RoomDetail | null>(null);
   useEffect(() => { api.rooms.get(candidate.roomId).then(setRoom).catch(onError); }, [candidate.roomId, onError]);
@@ -736,6 +743,7 @@ function RoomIntro({ candidate, trip, busy, onBack, onJoin }: { candidate: Match
         <p className="text-[0.9375rem] text-mute">{originTitle(r)}에서</p>
         <h2 className="mt-1 text-[1.875rem] font-bold leading-tight tracking-[-0.03em]">{destinationTitle(r)}</h2>
         <GenderChip enabled={r.sameGenderOnly} />
+        {otherTime && <div className="mt-4"><Notice tone="warn">이 방은 <b>{formatTime(r.departureAt)}</b>에 출발해요. 내가 고른 출발 시간({departureText})과 달라요. 참여하면 방의 출발 시간에 맞춰 만나요.</Notice></div>}
         <div className="no-scrollbar mt-4 flex gap-1.5 overflow-x-auto">
           {candidate.reasons.map(x => <span key={x} className="chip">{x}</span>)}
           <span className="chip">{formatDiff(candidate.departureDiffMinutes)}</span>

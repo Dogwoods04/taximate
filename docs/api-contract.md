@@ -66,7 +66,7 @@ READ_ONLY = {CONFIRMED, CLOSED, CANCELLED, EXPIRED}: no join, no messages (409 `
 | POST | `/api/auth/kakao` | `{ code, redirectUri }` | `{ token, member: Member, isNew: boolean, suggestedNickname: string }`; allow-listed redirect only (400); invalid code 401 / provider failure 502 `KAKAO_AUTH_FAILED`. |
 | PUT | `/api/me/nickname` | `{ nickname: string(2–20) }` | Own `Member`; trimmed, unique, reserved admin names rejected (409 `NICKNAME_TAKEN`); role unchanged. |
 | POST | `/api/auth/dev-login` | `{ nickname: string(2–20) }` | `{ token: string, member: Member }` — creates member if new. Enabled only when `taximate.auth.dev-login-enabled`. Nicknames in `taximate.auth.admin-nicknames` get ADMIN. When `devLoginPrefix` is set, only nicknames starting with it (or admin nicknames) are accepted, else 403 `DEV_LOGIN_RESTRICTED`; a DEV member renaming (`PUT /api/me/nickname`) must keep the prefix (400 `VALIDATION_FAILED`). |
-| PUT | `/api/me/gender` | `{ gender: MALE | FEMALE | UNDISCLOSED }` | Own `Member`; sets SELF; 409 `GENDER_SOURCE_LOCKED` for KAKAO. |
+| PUT | `/api/me/gender` | `{ gender: MALE | FEMALE }` | Own `Member`; sets SELF; 400 `VALIDATION_FAILED` for UNDISCLOSED; 409 `GENDER_SOURCE_LOCKED` for KAKAO. |
 | GET | `/api/me` | – | `Member` |
 | DELETE | `/api/me` | – | 204. **회원 탈퇴**: publishes `MemberWithdrawnEvent`; active trip cancelled, rooms left (hosted OPEN/COORDINATING rooms cancelled), own message bodies deleted, precise trip coordinates erased, consents/gender/kakao_id removed, nickname replaced by a non-identifying placeholder, status WITHDRAWN; all tokens invalid (401 afterwards). Report records are kept without the member's personal data. |
 | POST | `/api/me/age-confirmation` | `{ over14: true }` | Own `Member` (`ageConfirmed: true`); stores the confirmation time. `over14` false/missing → 400 `VALIDATION_FAILED`. |
@@ -83,6 +83,7 @@ ServicesConsent { id, policyVersion, items: ServiceItem[], agreedAt }   // only 
 ```
 
 ### Private gender and same-gender eligibility
+**Every room is same-gender only** (shared-taxi rule). UNDISCLOSED/null members must pick MALE or FEMALE (the app sends them to the gender step) before they can create, find or join rooms. UNDISCLOSED remains only as a legacy stored value.
 Own Member responses (/me and dev-login) include gender: MALE | FEMALE | UNDISCLOSED | null and genderSource: SELF | KAKAO | null. PUT /api/me/gender {gender} returns own Member, sets SELF and gender_updated_at; KAKAO source rejects SELF updates with 409 GENDER_SOURCE_LOCKED. Gender is never included in other public DTOs. Internal IdentityApi.getGender is for eligibility only. Kakao login fills/overrides SELF only with consented provider gender. Kakao accounts cannot be accessed using dev-login. New Kakao names use numeric suffixes on collision and never use reserved admin names; Kakao tokens are never persisted.
 
 ## places / external-mobility (owner: mobility-matching)
@@ -154,13 +155,16 @@ Algorithm:
 Same-gender eligibility is applied by RideRoomApi.findJoinableRoomsBySourceTripIds(hostTrips, requesterMemberId) before scoring. All active-room trips are excluded from the solo count independently of room visibility.
 
 6. `similarSearchingCount` = solo SEARCHING trips passing steps 1+3 that are not in any active room (`RideRoomApi.findTripIdsInActiveRooms`).
+7. `otherTimeCandidates` = rooms that pass every step except the departure window (same places, another time).
+   Ordered by |departureDiffMinutes| ascending, max 20. The app lists them under "다른 시간에 출발하는 방".
 
 ```ts
 MatchCandidatesResponse {
   tripId, generatedAt,
   policy: { priorityRadiusMeters: 200, maxRadiusMeters: 500 },
   candidates: MatchCandidate[],
-  similarSearchingCount: number
+  similarSearchingCount: number,
+  otherTimeCandidates: MatchCandidate[]   // same places, outside the time window
 }
 MatchCandidate {
   roomId, tier: ProximityTier,
@@ -201,7 +205,7 @@ NEAR = every participant ≤200m straight-line, EXTENDED = ≤500m. Walking rout
 | POST | `/api/rooms/{id}/cancel` | – | `RoomDetail` (host, from OPEN/COORDINATING) |
 
 ```ts
-CreateRoomRequest { sameGenderOnly?: boolean /* default false */, sourceTripId, capacity: number /*2–4 persons incl. host*/, terms: RoomTerms, departureAt?: string /*default trip.desiredDepartureAt*/ }
+CreateRoomRequest { sameGenderOnly?: boolean /* ignored: every room is same-gender only */, sourceTripId, capacity: number /*2–4 persons incl. host*/, terms: RoomTerms, departureAt?: string /*default trip.desiredDepartureAt*/ }
 UpdatePlanRequest { meetingPoint: MeetingPoint, departureAt: string, terms: RoomTerms }
 UpdateDestinationRequest { destination: PlaceRef }
 RoomTerms   { farePolicy: FarePolicy, luggageAllowed: boolean, note?: string /*≤200*/ }
@@ -228,7 +232,7 @@ Participant { memberId, nickname, role: 'HOST' | 'MEMBER', status: 'ACTIVE' | 'L
 ```
 
 ### Same-gender rooms
-Creation stores the host gender privately as restricted_gender; only MALE/FEMALE can create (409 GENDER_REQUIRED otherwise). Open lists and matching candidates exclude ineligible callers before limits; non-member detail returns 404 NOT_FOUND. Join returns 403 GENDER_RESTRICTED on mismatch; active-member retry remains idempotent. Existing active participants retain access after gender changes; the creation snapshot never changes. Only sameGenderOnly is public.
+Creation stores the host gender privately as restricted_gender; only MALE/FEMALE can create (409 GENDER_REQUIRED otherwise). Open lists and matching candidates exclude ineligible callers before limits; non-member detail returns 404 NOT_FOUND. Join returns 409 GENDER_REQUIRED when the caller has no MALE/FEMALE gender and 403 GENDER_RESTRICTED on mismatch; confirm also returns 403 GENDER_RESTRICTED if a member's gender no longer matches. Rooms with a null restricted_gender (legacy) take no new members; active-member retry remains idempotent. Existing active participants retain access after gender changes; the creation snapshot never changes. Only sameGenderOnly is public.
 
 ### Room destination changes
 `PUT /api/rooms/{id}/destination` accepts `UpdateDestinationRequest` and returns `RoomDetail`.

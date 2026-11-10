@@ -68,6 +68,31 @@ export function applyPlatform() {
   // media query would shrink the UI whenever the Android keyboard resizes the viewport.
   if (platform.view === 'mobile' && window.innerHeight > 0 && window.innerHeight <= COMPACT_MAX_HEIGHT) root.dataset.density = 'compact';
   if (platform.view === 'mobile' && platform.kind !== 'ios') trackVisualViewport();
+  watchDeviceEmulation();
+}
+
+/**
+ * Chrome DevTools device toolbar (Ctrl+Shift+M) turns on touch emulation and a phone-sized screen without
+ * reloading. The page cannot see the shortcut itself, but it sees the pointer media change: reload so the
+ * boot-time detection picks the matching app (phone → mobile app, back to mouse → PC site).
+ * A real phone never gains a fine pointer, and a view forced with ?view=mobile is left alone.
+ */
+function watchDeviceEmulation() {
+  if (platform.embedded) return;
+  let forced = false;
+  try { forced = storage()?.getItem(VIEW_KEY) === 'mobile'; } catch { /* storage blocked */ }
+  if (forced) return;
+  let timer = 0;
+  const check = () => {
+    clearTimeout(timer);
+    // Wait for the emulated screen size and pointer settings to settle.
+    timer = window.setTimeout(() => {
+      const view = detectKind() === 'pc' ? 'pc' : 'mobile';
+      if (view !== platform.view) window.location.reload();
+    }, 300);
+  };
+  for (const query of ['(pointer: coarse)', '(any-pointer: fine)', '(hover: hover)'])
+    matchMedia(query).addEventListener('change', check);
 }
 const COMPACT_MAX_HEIGHT = 760;
 

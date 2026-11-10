@@ -13,8 +13,15 @@ public class CandidateScorer {
     public CandidateScorer(MatchingProperties props) { this.props=props; }
     public Optional<Score> evaluate(TripIntentView mine, TripIntentView host, OffsetDateTime departure,
                                     double originDistance, double destinationDistance, OffsetDateTime now) {
+        return evaluate(mine, host, departure, originDistance, destinationDistance, now, false);
+    }
+    /** {@code anyTime}: skip the departure-time window (same trip at another time, listed separately). */
+    public Optional<Score> evaluate(TripIntentView mine, TripIntentView host, OffsetDateTime departure,
+                                    double originDistance, double destinationDistance, OffsetDateTime now, boolean anyTime) {
+        // The host's route only needs to exist: its 30-minute freshness limit is for the searcher's own fare/ETA, and
+        // gating on it hid every open room from search 30 minutes after it was created.
         if (host.route() == null || host.origin() == null || host.destination() == null
-                || !host.route().expiresAt().isAfter(now) || !host.expiresAt().isAfter(now)
+                || !host.expiresAt().isAfter(now)
                 || mine.route().path().size() < 2 || host.route().path().size() < 2) return Optional.empty();
         var mo=mine.origin().location(); var md=mine.destination().location();
         var ho=host.origin().location(); var hd=host.destination().location();
@@ -35,7 +42,7 @@ public class CandidateScorer {
             return Optional.empty();
         double departureDiff=Duration.between(mine.desiredDepartureAt(), departure).toMillis()/60000.0;
         double waitLimit=Math.min(props.maxDepartureDiffMinutes(),mine.maxWaitMinutes()+host.maxWaitMinutes());
-        if (Math.abs(departureDiff) > waitLimit) return Optional.empty();
+        if (!anyTime && Math.abs(departureDiff) > waitLimit) return Optional.empty();
         var w=props.weights();
         double value=(w.originDistance()*closeness(originDistance,props.maxRadiusMeters())
                 +w.destinationDistance()*closeness(destinationDistance,props.maxRadiusMeters())+w.overlap()*overlap

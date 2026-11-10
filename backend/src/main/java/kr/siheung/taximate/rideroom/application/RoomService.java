@@ -73,11 +73,10 @@ public class RoomService implements RideRoomApi {
         identity.requireActive(memberId); TripIntentView t=searchable(request.sourceTripId(),memberId);
         if(t.passengerCount()>request.capacity()) throw error(ErrorCode.ROOM_FULL);
         RideRoom r=new RideRoom(); r.id=UUID.randomUUID(); r.hostMemberId=memberId; r.sourceTripId=t.id(); r.status=RoomStatus.OPEN;
-        r.sameGenderOnly=Boolean.TRUE.equals(request.sameGenderOnly());
-        if(r.sameGenderOnly) {
-            r.restrictedGender=identity.getGender(memberId);
-            if(r.restrictedGender!=Gender.MALE && r.restrictedGender!=Gender.FEMALE) throw error(ErrorCode.GENDER_REQUIRED);
-        }
+        // Every room is same-gender only (shared-taxi rule): the host's gender decides who can find and join it.
+        // request.sameGenderOnly is ignored and kept only for older clients.
+        r.sameGenderOnly=true; r.restrictedGender=identity.getGender(memberId);
+        if(!binary(r.restrictedGender)) throw error(ErrorCode.GENDER_REQUIRED);
         r.capacity=request.capacity(); r.departureAt=request.departureAt()==null?t.desiredDepartureAt():request.departureAt();
         r.departureWindowEnd=r.departureAt.plusMinutes(t.maxWaitMinutes());
         if(!r.departureWindowEnd.isAfter(now())) throw error(ErrorCode.VALIDATION_FAILED);
@@ -91,10 +90,13 @@ public class RoomService implements RideRoomApi {
         em.persist(r);
         add(r,memberId,t,Role.HOST); changed(r,"모집방이 만들어졌습니다"); return detail(r.id,memberId);
     }
-    private boolean eligible(RideRoom r,UUID memberId) { return !r.sameGenderOnly || (r.restrictedGender!=null && r.restrictedGender==identity.getGender(memberId)); }
+    private static boolean binary(Gender g) { return g==Gender.MALE || g==Gender.FEMALE; }
+    /** Same gender as the room, always. A legacy room without a recorded gender is open to no one new. */
+    private boolean eligible(RideRoom r,UUID memberId) { return r.restrictedGender!=null && r.restrictedGender==identity.getGender(memberId); }
     public RoomDetail join(UUID id,UUID memberId,UUID tripId) {
         RideRoom r=lock(id); identity.requireActive(memberId); RoomParticipant existing=participant(id,memberId);
         if(existing!=null && existing.status==Status.ACTIVE) return detail(id,memberId);
+        if(!binary(identity.getGender(memberId))) throw error(ErrorCode.GENDER_REQUIRED);
         if(!eligible(r,memberId)) throw error(ErrorCode.GENDER_RESTRICTED);
         if(!RoomStatus.JOINABLE.contains(r.status) || r.hidden || !r.departureWindowEnd.isAfter(now()) || (existing!=null && existing.status==Status.REMOVED)) throw error(ErrorCode.ROOM_NOT_JOINABLE);
         TripIntentView t=searchable(tripId,memberId);
@@ -123,6 +125,8 @@ public class RoomService implements RideRoomApi {
         if(version!=r.termsVersion) throw error(ErrorCode.TERMS_VERSION_MISMATCH);
         if(r.status==RoomStatus.CONFIRMED && Objects.equals(p.confirmedTermsVersion,version)) return detail(id,memberId);
         joinable(r); if(r.meetingPoint()==null) throw error(ErrorCode.MEETING_POINT_REQUIRED);
+        // A member whose gender changed after joining cannot confirm a ride with the other gender.
+        if(!eligible(r,memberId)) throw error(ErrorCode.GENDER_RESTRICTED);
         if(Objects.equals(p.confirmedTermsVersion,version)) return detail(id,memberId);
         p.confirmedTermsVersion=version;
         changed(r,identity.getMember(memberId).nickname()+"님이 탑승 조건을 확인했습니다");
@@ -237,7 +241,7 @@ public class RoomService implements RideRoomApi {
         List<RideRoom> eligible=em.createQuery("""
                 select r from RideRoom r
                 where r.status in :statuses and r.hidden=false and r.departureWindowEnd>:now
-                and (r.sameGenderOnly=false or r.restrictedGender=:gender)
+                and r.restrictedGender=:gender
                 and not exists (select p.id from RoomParticipant p
                     where p.roomId=r.id and p.memberId=:member and p.status=:active)
                 and r.capacity > (select coalesce(sum(p.passengerCount),0) from RoomParticipant p

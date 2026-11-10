@@ -144,6 +144,8 @@ export interface MatchCandidatesResponse {
   policy: MatchPolicy;
   candidates: MatchCandidate[];
   similarSearchingCount: number;
+  /** Same origin/destination area, but departing outside my time window (nearest time first, max 20). */
+  otherTimeCandidates: MatchCandidate[];
 }
 export interface MeetingPointSuggestion {
   point: MeetingPoint;

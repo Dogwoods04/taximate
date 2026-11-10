@@ -6,7 +6,9 @@ import kr.siheung.taximate.common.geo.LatLng;
 import kr.siheung.taximate.rideroom.api.RoomSummaryDto;
 
 public record MatchCandidatesResponse(UUID tripId, OffsetDateTime generatedAt, Policy policy,
-        List<Candidate> candidates, long similarSearchingCount) {
+        List<Candidate> candidates, long similarSearchingCount,
+        /* Same origin/destination area, departing outside the searcher's time window; nearest time first. */
+        List<Candidate> otherTimeCandidates) {
     public record Policy(int priorityRadiusMeters,int maxRadiusMeters) {}
     public enum Tier { NEAR, EXTENDED }
     public record Candidate(UUID roomId,Tier tier,int originDistanceMeters,int destinationDistanceMeters,

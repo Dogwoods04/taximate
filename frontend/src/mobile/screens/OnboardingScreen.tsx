@@ -31,7 +31,7 @@ type Step = 'intro' | 'name' | 'age' | 'gender' | 'consent' | 'services';
 /** First onboarding step this member still has to do (age → gender → location → services), or null when done. */
 function nextStep(m: Member): Step | null {
   if (!m.ageConfirmed) return 'age';
-  if (!m.gender) return 'gender';
+  if (m.gender !== 'MALE' && m.gender !== 'FEMALE') return 'gender'; // rooms are same-gender only
   if (!m.locationConsent) return 'consent';
   if (!m.servicesConsent) return 'services';
   return null;

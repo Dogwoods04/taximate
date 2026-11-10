@@ -34,7 +34,8 @@ let state: State = (() => {
 // Upgrade persisted demos without treating missing gender as a completed choice.
 state.members.forEach(m => { m.authProvider ??= 'DEV'; m.gender ??= null; m.genderSource ??= null; m.ageConfirmed ??= false; });
 state.rooms.forEach(r => { r.sameGenderOnly ??= false; r.restrictedGender ??= null; });
-function eligible(r: Room, m = caller()) { return !r.sameGenderOnly || (!!r.restrictedGender && r.restrictedGender === m.gender); }
+/** Every room is same-gender only; a room without a recorded gender takes no new members. */
+function eligible(r: Room, m = caller()) { return !!r.restrictedGender && r.restrictedGender === m.gender; }
 function save() { localStorage.setItem(key, JSON.stringify(state)); }
 function member(id: string) { return state.members.find(m => m.id === id) ?? fail('NOT_FOUND'); }
 function caller(write = false) {
@@ -121,7 +122,7 @@ function seed() {
     const t = makeTrip(m, { origin, destination, desiredDepartureAt: new Date(Date.now() + (5 + i) * 60000).toISOString(), maxWaitMinutes: 30, maxDetourMinutes: 15, passengerCount: 1 });
     const r = makeRoom(t, 3, { farePolicy: i === 1 ? 'DISTANCE_PRORATED' : 'EQUAL_SPLIT', luggageAllowed: i !== 2, note: '만나는 장소에서 함께 택시를 기다려요.' });
     m.gender = i % 2 ? 'MALE' : 'FEMALE'; m.genderSource = 'SELF';
-    r.sameGenderOnly = i < 2; r.restrictedGender = r.sameGenderOnly ? m.gender : null;
+    r.sameGenderOnly = true; r.restrictedGender = m.gender;
     r.demo = true;
     r.meetingPoint = { name: `${fixtures[from].name} 앞 만남 장소`, kind: 'STATION_EXIT', location: fixtures[from].location };
     addMessage(r, '동행방이 열렸어요. 약속을 확인하고 확정해 주세요.');
@@ -168,7 +169,7 @@ function validateTerms(t: C.RoomTerms) { valid(['EQUAL_SPLIT', 'DISTANCE_PRORATE
 function validatePoint(p: C.LatLng) { valid(Number.isFinite(p.lat) && Number.isFinite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180); }
 function validateDeparture(date: string) { valid(Number.isFinite(Date.parse(date)) && Date.parse(date) >= Date.now() - 300000 && Date.parse(date) <= Date.now() + 7 * 86400000, '출발 시간은 5분 전부터 7일 이내로 선택해 주세요.'); }
 const apiCall = <T>(fn: () => T): Promise<T> => Promise.resolve().then(() => { sweep(); const result = fn(); save(); return structuredClone(result); });
-function compare(mine: C.TripIntent, other: C.TripIntent, departureAt: string) {
+function compare(mine: C.TripIntent, other: C.TripIntent, departureAt: string, anyTime = false) {
   if (!searching(other) || !other.route || !mine.route) return null;
   const origin = distance(mine.origin.location, other.origin.location), destination = distance(mine.destination.location, other.destination.location);
   const diff = (Date.parse(departureAt) - Date.parse(mine.desiredDepartureAt)) / 60000;
@@ -176,7 +177,7 @@ function compare(mine: C.TripIntent, other: C.TripIntent, departureAt: string) {
   const { cosine, overlap } = routeComparison(mine.route.path, other.route.path);
   // Contract matching: step 1 needs both ends within 500 m; then only the departure window is a hard check.
   // Direction, overlap and detour feed the score (x clamp(cosine, 0, 1)) — nearby buildings often get different car routes.
-  if (origin > 500 || destination > 500 || Math.abs(diff) > Math.min(30, mine.maxWaitMinutes + other.maxWaitMinutes)) return null;
+  if (origin > 500 || destination > 500 || (!anyTime && Math.abs(diff) > Math.min(30, mine.maxWaitMinutes + other.maxWaitMinutes))) return null;
   return { origin, destination, diff, detour, cosine, overlap: origin <= 200 && destination <= 200 ? 1 : overlap };
 }
 export const mockClient: ApiClient = {
@@ -220,7 +221,7 @@ export const mockClient: ApiClient = {
       state.members = state.members.filter(x => x.id !== m.id);
       for (const [token, id] of Object.entries(state.tokens)) if (id === m.id) delete state.tokens[token];
     }),
-    setGender: b => apiCall(() => { const m = caller(true); valid(['MALE','FEMALE','UNDISCLOSED'].includes(b.gender)); if (m.genderSource === 'KAKAO') fail('GENDER_SOURCE_LOCKED'); m.gender = b.gender; m.genderSource = 'SELF'; return m; }),
+    setGender: b => apiCall(() => { const m = caller(true); valid(['MALE','FEMALE'].includes(b.gender), '남성 또는 여성을 선택해 주세요.'); if (m.genderSource === 'KAKAO') fail('GENDER_SOURCE_LOCKED'); m.gender = b.gender; m.genderSource = 'SELF'; return m; }),
     agree: b => apiCall(() => { valid(b.policyVersion.trim()); const m = caller(true); return m.locationConsent = { id: uuid(), policyVersion: b.policyVersion, agreedAt: now() }; }),
     withdraw: () => apiCall(() => { const m = caller(); m.locationConsent = null; state.trips.filter(t => t.owner === m.id && activeTrip(t.value)).forEach(cancelTrip); }),
     agreeServices: b => apiCall(() => { valid(b.policyVersion.trim()); const items = [...new Set(b.items)]; valid(REQUIRED_SERVICE_ITEMS.every(i => items.includes(i))); const m = caller(true); return m.servicesConsent = { id: uuid(), policyVersion: b.policyVersion, items, agreedAt: now() }; }),
@@ -244,18 +245,19 @@ export const mockClient: ApiClient = {
       consent(); const mine = ownedTrip(id).value;
       if (!searching(mine)) fail('TRIP_NOT_SEARCHABLE');
       if (!mine.route || Date.parse(mine.route.expiresAt) <= Date.now()) fail('ROUTE_EXPIRED');
-      const candidates: C.MatchCandidate[] = [];
+      const candidates: C.MatchCandidate[] = [], otherTimeCandidates: C.MatchCandidate[] = [];
       for (const r of state.rooms) {
         if (!eligible(r) || !joinable(r) || r.hidden || r.host === caller().id || seats(r) < mine.passengerCount || !member(r.host).locationConsent || member(r.host).status !== 'ACTIVE') continue;
-        const hostTrip = getTrip(r.source).value, c = compare(mine, hostTrip, r.departureAt);
+        const hostTrip = getTrip(r.source).value, inTime = compare(mine, hostTrip, r.departureAt), c = inTime ?? compare(mine, hostTrip, r.departureAt, true);
         if (!c) continue;
         const overlapRatio = Math.round(c.overlap * 100) / 100;
-        candidates.push({ roomId: r.id, tier: c.origin <= 200 ? 'NEAR' : 'EXTENDED', originDistanceMeters: roundMeters(c.origin), destinationDistanceMeters: roundMeters(c.destination), departureDiffMinutes: Math.round(c.diff), overlapRatio, estimatedDetourMinutes: c.detour, seatsLeft: seats(r), score: Math.round(100 * Math.min(1, Math.max(0, c.cosine)) * (.25 * (1 - c.origin / 500) + .15 * (1 - c.destination / 500) + .30 * c.overlap + .20 * (1 - Math.abs(c.diff) / 30) + .1 * Math.max(0, 1 - c.detour / Math.max(1, mine.maxDetourMinutes)))), reasons: [`출발지 ${roundMeters(c.origin)}m`, `목적지 ${roundMeters(c.destination)}m`, `경로 ${Math.round(overlapRatio * 100)}% 겹침`, `추가 이동 약 ${c.detour}분`], room: summary(r), routePreview: preview(hostTrip.route!.path) });
+        (inTime ? candidates : otherTimeCandidates).push({ roomId: r.id, tier: c.origin <= 200 ? 'NEAR' : 'EXTENDED', originDistanceMeters: roundMeters(c.origin), destinationDistanceMeters: roundMeters(c.destination), departureDiffMinutes: Math.round(c.diff), overlapRatio, estimatedDetourMinutes: c.detour, seatsLeft: seats(r), score: Math.round(100 * Math.min(1, Math.max(0, c.cosine)) * (.25 * (1 - c.origin / 500) + .15 * (1 - c.destination / 500) + .30 * c.overlap + .20 * Math.max(0, 1 - Math.abs(c.diff) / 30) + .1 * Math.max(0, 1 - c.detour / Math.max(1, mine.maxDetourMinutes)))), reasons: [`출발지 ${roundMeters(c.origin)}m`, `목적지 ${roundMeters(c.destination)}m`, `경로 ${Math.round(overlapRatio * 100)}% 겹침`, `추가 이동 약 ${c.detour}분`], room: summary(r), routePreview: preview(hostTrip.route!.path) });
       }
       candidates.sort((a, b) => (a.tier === b.tier ? b.score - a.score : a.tier === 'NEAR' ? -1 : 1));
+      otherTimeCandidates.sort((a, b) => Math.abs(a.departureDiffMinutes) - Math.abs(b.departureDiffMinutes));
       mine.status = candidates.length ? 'SEARCHING' : 'NO_MATCH';
       const similarSearchingCount = state.trips.filter(t => t.owner !== caller().id && member(t.owner).locationConsent && member(t.owner).status === 'ACTIVE' && t.value.status === 'SEARCHING' && !state.rooms.some(r => (joinable(r) || r.status === 'CONFIRMED') && active(r).some(p => p.tripId === t.value.id)) && compare(mine, t.value, t.value.desiredDepartureAt)).length;
-      return { tripId: id, generatedAt: now(), policy: { priorityRadiusMeters: 200, maxRadiusMeters: 500 }, candidates: candidates.slice(0, 20), similarSearchingCount };
+      return { tripId: id, generatedAt: now(), policy: { priorityRadiusMeters: 200, maxRadiusMeters: 500 }, candidates: candidates.slice(0, 20), similarSearchingCount, otherTimeCandidates: otherTimeCandidates.slice(0, 20) };
     }),
   },
   rooms: {
@@ -268,7 +270,7 @@ export const mockClient: ApiClient = {
       r.termsVersion++; active(r).forEach(p => { p.confirmed = false; });
       addMessage(r, `방장이 목적지를 ${b.destination.name || '새 장소'}(으)로 바꿨어요`); changed(r); return detail(r);
     }),
-    create: b => apiCall(() => { consent(); const t = ownedTrip(b.sourceTripId); if (!searching(t.value)) fail('TRIP_NOT_SEARCHABLE'); freeTrip(t); valid(Number.isInteger(b.capacity) && b.capacity >= 2 && b.capacity <= 4 && b.capacity >= t.value.passengerCount); validateTerms(b.terms); if (b.departureAt) validateDeparture(b.departureAt); if (b.sameGenderOnly && !['MALE','FEMALE'].includes(caller().gender ?? '')) fail('GENDER_REQUIRED'); const r = makeRoom(t, b.capacity, b.terms, b.departureAt, b.sameGenderOnly); addMessage(r, '동행방을 만들었어요. 만날 장소를 정해 주세요.'); return detail(r); }),
+    create: b => apiCall(() => { consent(); const t = ownedTrip(b.sourceTripId); if (!searching(t.value)) fail('TRIP_NOT_SEARCHABLE'); freeTrip(t); valid(Number.isInteger(b.capacity) && b.capacity >= 2 && b.capacity <= 4 && b.capacity >= t.value.passengerCount); validateTerms(b.terms); if (b.departureAt) validateDeparture(b.departureAt); if (!['MALE','FEMALE'].includes(caller().gender ?? '')) fail('GENDER_REQUIRED'); const r = makeRoom(t, b.capacity, b.terms, b.departureAt, true); addMessage(r, '동행방을 만들었어요. 만날 장소를 정해 주세요.'); return detail(r); }),
     open: near => apiCall(() => {
       const m = caller(); if (near) validatePoint(near);
       const list = state.rooms.filter(r => eligible(r,m) && joinable(r) && !r.hidden && seats(r) > 0 && !active(r).some(p => p.memberId === m.id)).map(summary).filter(r => Date.parse(r.departureWindowEnd) > Date.now());
