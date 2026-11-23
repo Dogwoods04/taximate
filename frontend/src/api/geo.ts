@@ -2,6 +2,12 @@ import type { LatLng, RouteSnapshot } from './contract';
 const xScale = 111320 * Math.cos(37.37 * Math.PI / 180);
 const yScale = 111320;
 export const distance = (a: LatLng, b: LatLng) => Math.hypot((a.lng - b.lng) * xScale, (a.lat - b.lat) * yScale);
+/** Great-circle distance in metres (same formula as the backend GeoUtils.distanceMeters). */
+export function greatCircle(a: LatLng, b: LatLng): number {
+  const rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
 export const mask = (p: LatLng): LatLng => ({ lat: Number(p.lat.toFixed(3)), lng: Number(p.lng.toFixed(3)) });
 export const roundMeters = (n: number) => Math.round(n / 10) * 10;
 const mix = (a: LatLng, b: LatLng, t: number): LatLng => ({ lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t });

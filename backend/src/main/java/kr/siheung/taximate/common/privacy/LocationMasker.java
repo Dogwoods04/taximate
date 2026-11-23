@@ -29,6 +29,16 @@ public class LocationMasker {
         return LatLng.of(round(p.lat()), round(p.lng()));
     }
 
+    /**
+     * Upper bound (m) of how far {@link #approximate} can move a point: half a grid cell on each axis, measured with
+     * the latitude scale (a longitude degree is never longer), plus 1 m. Used to widen precise spatial pre-filters
+     * so that every point whose approximate position is in range is still found.
+     */
+    public double approximationErrorMeters() {
+        double halfCellDegrees = 0.5 / Math.pow(10, props.coordinateDecimals());
+        return Math.ceil(halfCellDegrees * 111_320 * Math.sqrt(2)) + 1;
+    }
+
     /** Round a distance for display to others (10m steps). */
     public int roundDistance(double meters) {
         return (int) (Math.round(meters / 10.0) * 10);

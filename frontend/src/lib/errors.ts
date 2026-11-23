@@ -22,6 +22,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   ROOM_FULL: '좌석이 모두 찼어요.',
   ROOM_READ_ONLY: '확정되었거나 종료된 방이라 변경할 수 없어요.',
   ALREADY_IN_ROOM: '이미 다른 동행방에 참여 중이에요.',
+  RIDE_IN_PROGRESS: '확정된 동행이 아직 끝나지 않았어요. 이동을 마친 뒤 ‘이동 완료’를 누르면 새 동행을 시작할 수 있어요.',
   TERMS_VERSION_MISMATCH: '약속 내용이 바뀌었어요. 새 내용을 확인하고 다시 확정해 주세요.',
   MEETING_POINT_REQUIRED: '만날 장소가 정해져야 확정할 수 있어요.',
   LOCK_TIMEOUT: '요청이 몰려 있어요. 잠시 후 다시 시도해 주세요.',

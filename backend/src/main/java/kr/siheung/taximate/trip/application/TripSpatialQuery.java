@@ -3,6 +3,7 @@ package kr.siheung.taximate.trip.application;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.*;
+import kr.siheung.taximate.common.geo.LatLng;
 import kr.siheung.taximate.matching.api.MatchingTrips;
 import kr.siheung.taximate.trip.api.*;
 import kr.siheung.taximate.trip.domain.TripRepository;
@@ -38,6 +39,17 @@ public class TripSpatialQuery implements MatchingTrips {
                 ORDER BY origin_distance, t.id
                 """, params, (rs, row) -> new NearbyTrip(rs.getObject("id", UUID.class),
                 rs.getDouble("origin_distance"), rs.getDouble("destination_distance")));
+    }
+    /** Trips whose precise origin is within radiusMeters of center (GiST index). The point is not stored or logged. */
+    @Transactional(readOnly=true)
+    public Set<UUID> findIdsWithOriginWithin(LatLng center, double radiusMeters) {
+        if (center == null || !(radiusMeters > 0)) return Set.of();
+        return new HashSet<>(jdbc.query("""
+                SELECT t.id FROM trip_intents t
+                WHERE t.origin_geog IS NOT NULL
+                  AND ST_DWithin(t.origin_geog, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
+                """, Map.of("lat", center.lat(), "lng", center.lng(), "radius", radiusMeters),
+                (rs, row) -> rs.getObject("id", UUID.class)));
     }
     @Override @Transactional
     public void recordSearchResult(UUID tripId, boolean hasCandidates) {

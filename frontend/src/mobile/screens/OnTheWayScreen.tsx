@@ -1,5 +1,6 @@
 import GenderChip from '../components/GenderChip';
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import PassengerCount from '../components/PassengerCount';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, isMock } from '../../api';
 import type { LatLng, MeetingPoint, Message, PlaceRef, RoomDetail, RoomEvent, TripIntent } from '../../api/contract';
@@ -50,24 +51,27 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
   const [report, setReport] = useState<ReportTarget | null>(null);
   const [page, setPage] = useState(0);
   const [unread, setUnread] = useState(0);
+  const [joinParty, setJoinParty] = useState(1);
+  const [swiping, setSwiping] = useState(false);
+  const swipe = useRef<{ id: number; x: number; y: number; left: number; page: number; horizontal: boolean } | null>(null);
   const pageRef = useRef(0);
   pageRef.current = page;
   const pager = useRef<HTMLDivElement>(null);
+  const pagerTarget = useRef<number | null>(null);
   const lastId = useRef<string | undefined>(undefined);
   const now = useNow();
 
   const isMember = !!room && room.myRole !== 'NONE';
-  const sheet = useSheetDrag(map.size, otwSheetHeight(map.size), 'otw');
   // Leave room for a place card and the composer even on the collapsed chat page.
   const chatMinHeight = Math.min(maxSheetHeight(map.size), Math.round(600 * remScale()));
-  const sheetH = page === 1 && isMember ? Math.max(sheet.settledHeight, chatMinHeight) : sheet.settledHeight;
+  const sheet = useSheetDrag(map.size, page === 1 && isMember ? Math.max(otwSheetHeight(map.size), chatMinHeight) : otwSheetHeight(map.size), 'otw', false, undefined, { collapsedHeight: 132 });
+  const sheetH = sheet.settledHeight;
   // Typing in the chat with the on-screen keyboard open (Android & co.; iOS pans the page itself):
   // the sheet covers the whole map with its top just under the back button and drops its header/footer,
   // so the messages and the input fit above the keyboard. Restored when the keyboard closes.
   const keyboard = useKeyboardOpen();
   const chatMode = keyboard && page === 1 && isMember;
-  const sheetStyle = chatMode ? { ...sheet.style, height: maxSheetHeight(map.size) }
-    : page === 1 && isMember ? { ...sheet.style, height: Math.max(sheet.style.height, chatMinHeight) } : sheet.style;
+  const sheetStyle = chatMode ? { ...sheet.style, height: maxSheetHeight(map.size) } : sheet.style;
   useEffect(() => { map.setCover(chatMode ? 1 : sheet.progress, sheet.dragging); }, [map, chatMode, sheet.progress, sheet.dragging]);
   useEffect(() => { map.setAttributionInset(sheetStyle.height, sheet.dragging); }, [map, sheetStyle.height, sheet.dragging]);
   useEffect(() => () => map.setCover(0), [map]);
@@ -148,7 +152,7 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
   useEffect(() => {
     if (!room) return;
     if (room.myTripId) { api.trips.get(room.myTripId).then(setMyTrip).catch(() => setMyTrip(null)); return; }
-    if (!isMember) api.trips.active().then(setJoinTrip).catch(() => setJoinTrip(null));
+    if (!isMember) api.trips.active().then(t => { setJoinTrip(t); setJoinParty(Math.max(1, Math.min(t?.passengerCount ?? 1, room.seatsLeft, 3))); }).catch(() => setJoinTrip(null));
   }, [room?.myTripId, room?.termsVersion, isMember]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Map: the room's route, fitted above the sheet.
@@ -163,16 +167,54 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
   }, [mapKey, sheet.dragging, sheet.expanded, chatMode]);
 
   const goTo = (i: number) => {
+    if (sheet.collapsed) sheet.restore();
     const el = pager.current;
+    pagerTarget.current = i;
     if (el) el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
     setPage(i);
     if (i === 1) setUnread(0);
   };
   const onPagerScroll = () => {
     const el = pager.current;
-    if (!el) return;
+    if (!el || el.clientWidth === 0 || swipe.current?.horizontal) return;
+    // A smooth tab change crosses the old page first. Keep the chosen page height stable until arrival.
+    if (pagerTarget.current !== null) {
+      if (Math.abs(el.scrollLeft - pagerTarget.current * el.clientWidth) > 2) return;
+      pagerTarget.current = null;
+    }
     const i = Math.round(el.scrollLeft / el.clientWidth);
     if (i !== pageRef.current) { setPage(i); if (i === 1) setUnread(0); }
+  };
+
+  // Own only horizontal gestures; the browser keeps vertical message scrolling and text selection.
+  const swipeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || event.button !== 0 || (event.target as Element).closest('input, textarea, button, a, select, [data-no-swipe]')) return;
+    pagerTarget.current = null;
+    swipe.current = { id: event.pointerId, x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, page: pageRef.current, horizontal: false };
+  };
+  const swipeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = swipe.current;
+    if (!start || start.id !== event.pointerId) return;
+    const dx = event.clientX - start.x, dy = event.clientY - start.y;
+    if (!start.horizontal) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { swipe.current = null; return; }
+      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+      start.horizontal = true; setSwiping(true);
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    event.currentTarget.scrollLeft = start.left - dx;
+  };
+  const swipeEnd = (event: ReactPointerEvent<HTMLDivElement>, cancelled = false) => {
+    const start = swipe.current;
+    if (!start || start.id !== event.pointerId) return;
+    swipe.current = null; setSwiping(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (start.horizontal) {
+      const dx = event.clientX - start.x;
+      const next = cancelled ? start.page : Math.abs(dx) >= 40 ? Math.min(1, Math.max(0, start.page + (dx < 0 ? 1 : -1))) : start.page;
+      goTo(next);
+    }
   };
 
   if (!room) {
@@ -194,6 +236,13 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
     selfExit.current = true;
     if (await act(() => api.rooms.leave(room.id), '방에서 나왔어요.')) close();
   };
+  /** 이동 완료 (members): end my confirmed ride; the room leaves "현재 내 방" and a new ride can start. */
+  const finishRide = async () => {
+    if (!window.confirm('이동을 마쳤나요? 이 동행이 현재 내 방에서 빠지고, 새 동행을 시작할 수 있어요.')) return;
+    selfExit.current = true;
+    if (await act(() => api.rooms.finish(room.id), '이동을 마쳤어요. 함께해 주셔서 고마워요!')) close();
+    else selfExit.current = false;
+  };
   const cancelRoom = async () => {
     if (!window.confirm('방을 취소할까요? 참여자 모두에게 취소가 알려져요.')) return;
     selfExit.current = true;
@@ -201,7 +250,7 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
   };
   const join = async () => {
     if (!joinTrip) return;
-    if (await act(() => api.rooms.join(room.id, { tripId: joinTrip.id }), '방에 참여했어요!')) void fetchNewMessages();
+    if (await act(() => api.rooms.join(room.id, { tripId: joinTrip.id, passengerCount: joinParty }), '방에 참여했어요!')) void fetchNewMessages();
   };
 
   const departed = Date.parse(room.departureAt) - now;
@@ -209,12 +258,15 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
 
   return (
     <div className="pointer-events-none absolute inset-0">
-      <button type="button" onClick={close} aria-label="홈으로"
-        className={`ease-sheet pointer-events-auto absolute left-0 z-[60] top-[max(48px,env(safe-area-inset-top))] grid h-14 w-12 place-items-center rounded-r-full bg-ink pr-1 text-white shadow-float transition duration-500 ${shown ? 'translate-x-0' : '-translate-x-full'}`}>
-        <ChevronLeftIcon size={22} />
-      </button>
+      {/* After 동승 확정 the participant stays in the ride until 이동 완료 (which goes home itself): no way back to the main screen. */}
+      {!(isMember && room.status === 'CONFIRMED' && !moderation) && (
+        <button type="button" onClick={close} aria-label="홈으로"
+          className={`ease-sheet pointer-events-auto absolute left-0 z-[60] top-[max(48px,env(safe-area-inset-top))] grid h-14 w-12 place-items-center rounded-r-full bg-ink pr-1 text-white shadow-float transition duration-500 ${shown ? 'translate-x-0' : '-translate-x-full'}`}>
+          <ChevronLeftIcon size={22} />
+        </button>
+      )}
 
-      <section aria-label="이동 중" style={sheetStyle}
+      <section data-draggable-sheet aria-label="이동 중" style={sheetStyle}
         className={`ease-sheet pointer-events-auto absolute inset-x-0 bottom-0 flex flex-col rounded-t-sheet bg-white shadow-sheet transition-[height,transform] duration-500 ${shown ? 'translate-y-0' : 'translate-y-full'}`}>
         {/* timer pill: time left until departure */}
         <div className="absolute left-1/2 top-0 flex h-12 -translate-x-1/2 -translate-y-1/2 items-center gap-2.5 rounded-full bg-ink px-6 text-white shadow-float [--clock-hand:#151515]" role="timer" aria-label="출발까지 남은 시간">
@@ -222,15 +274,15 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
           <span className="text-[1.25rem] font-semibold tabular-nums tracking-tight">{timerText}</span>
         </div>
 
-        <div className={`shrink-0 pt-6 ${chatMode ? 'hidden' : ''}`}><SheetHandle controls={sheet} /></div>
-        <div className={`shrink-0 px-6 pt-1 ${chatMode ? 'hidden' : ''}`}>
+        <div className="shrink-0 pt-5"><SheetHandle controls={sheet} /></div>
+        <div className={`shrink-0 px-5 pt-1 ${chatMode ? 'hidden' : ''}`}>
           <div className="flex items-center justify-between">
-            <span className="text-[0.9375rem] text-mute">목적지</span>
-            <RoomStatusChip status={room.status} />
+            <span className="min-w-0 truncate text-sm font-semibold">{sheet.collapsed ? destinationTitle(room) : '목적지'}</span>
           </div>
-          <div className="mt-2 flex h-12 items-center gap-4">
+          {!sheet.collapsed && <div className="mt-1 flex h-10 items-center gap-3">
             <ArrowIcon size={22} className="-scale-x-100 shrink-0" />
             <span className="min-w-0 flex-1 truncate text-[1.125rem] font-medium">{destinationTitle(room)}</span>
+            <RoomStatusChip status={room.status} />
             {page === 0 && unread > 0 && (
               <button type="button" onClick={() => goTo(1)} aria-label={`새 메시지 ${unread}개`}
                 className="animate-pop relative grid h-12 w-12 shrink-0 place-items-center rounded-full bg-ink text-sun shadow-float">
@@ -238,15 +290,19 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
                 <span className="absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full border-2 border-white bg-sun px-1 text-[0.6875rem] font-bold text-ink">{unread > 9 ? '9+' : unread}</span>
               </button>
             )}
-          </div>
-          <div className="mt-3 border-t border-line" />
+          </div>}
+          {!sheet.collapsed && <div className="mt-2 flex gap-2 border-b border-line pb-2" role="tablist" aria-label="방 화면">
+            <button type="button" role="tab" aria-selected={page === 0} onClick={() => goTo(0)} className={`min-h-10 flex-1 rounded-full text-sm font-semibold ${page === 0 ? 'bg-ink text-white' : 'bg-fog text-mute'}`}>방 정보</button>
+            <button type="button" role="tab" aria-selected={page === 1} onClick={() => goTo(1)} className={`min-h-10 flex-1 rounded-full text-sm font-semibold ${page === 1 ? 'bg-ink text-white' : 'bg-fog text-mute'}`}>채팅{unread > 0 ? ` · ${unread}` : ''}</button>
+          </div>}
         </div>
 
-        <div className="relative min-h-0 flex-1">
-          <div ref={pager} onScroll={onPagerScroll} className="no-scrollbar flex h-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain">
-            <div className="no-scrollbar h-full w-full shrink-0 snap-start overflow-y-auto px-6 pb-12 pt-5">
+        <div aria-hidden={sheet.collapsed} className={`relative min-h-0 flex-1 overflow-hidden ${sheet.collapsed ? 'invisible pointer-events-none' : ''}`}>
+          <div ref={pager} onScroll={onPagerScroll} onPointerDown={swipeStart} onPointerMove={swipeMove} onPointerUp={e => swipeEnd(e)} onPointerCancel={e => swipeEnd(e, true)} onLostPointerCapture={e => swipeEnd(e, true)} style={{ touchAction: 'pan-y', scrollSnapType: swiping ? 'none' : 'x mandatory' }} className="no-scrollbar flex h-full overflow-x-auto overscroll-x-contain">
+            <div className="no-scrollbar h-full w-full shrink-0 snap-start overflow-y-auto overscroll-y-contain px-5 pb-6 pt-3">
               <RideInfo room={room} myId={member?.id} busy={busy} onAct={act} onReload={loadRoom} onEdit={() => setEditing(true)} onReport={setReport}
-                joinTrip={joinTrip} onJoin={join} />
+                onOpenOngoing={() => room.ongoingRideRoomId && navigate(`/rooms/${room.ongoingRideRoomId}`)}
+                joinTrip={joinTrip} party={joinParty} onParty={setJoinParty} onJoin={join} />
             </div>
             <div className={`flex h-full w-full shrink-0 snap-start flex-col px-6 pb-2 ${chatMode ? 'pt-8' : 'pt-3'}`}>
               {isMember
@@ -256,10 +312,13 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
           </div>
         </div>
 
-        <div className={`shrink-0 px-6 pb-[max(20px,env(safe-area-inset-bottom))] pt-3 ${chatMode ? 'hidden' : ''}`}>
+        <div className={`shrink-0 px-5 pb-[max(12px,env(safe-area-inset-bottom))] pt-2 ${chatMode || sheet.collapsed ? 'hidden' : ''}`}>
           <PageBars count={2} active={page} onSelect={goTo} />
           {isMember && !room.readOnly && (
-            <button type="button" className="btn-fog mt-4 w-full" disabled={busy} onClick={isHost ? cancelRoom : leave}>{isHost ? '방 취소' : '방 나가기'}</button>
+            <button type="button" className="mt-2 min-h-10 w-full rounded-full bg-fog text-sm font-semibold text-mute-dark" disabled={busy} onClick={isHost ? cancelRoom : leave}>{isHost ? '방 취소' : '방 나가기'}</button>
+          )}
+          {isMember && !isHost && room.status === 'CONFIRMED' && (
+            <button type="button" className="btn-ink mt-4 w-full" disabled={busy} onClick={finishRide}>이동 완료</button>
           )}
           {isHost && room.status === 'CONFIRMED' && (
             <button type="button" className="btn-ink mt-4 w-full" disabled={busy}
@@ -278,8 +337,9 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
 
 // ---------------------------------------------------------------- page 1: fare, people, meeting point, 전원 확정
 
-function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTrip, onJoin }: {
-  room: RoomDetail; myId?: string; busy: boolean; joinTrip: TripIntent | null;
+function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTrip, party, onParty, onJoin, onOpenOngoing }: {
+  room: RoomDetail; myId?: string; busy: boolean; joinTrip: TripIntent | null; onOpenOngoing(): void;
+  party: number; onParty(n: number): void;
   onAct(fn: () => Promise<RoomDetail>, done?: string): Promise<RoomDetail | undefined>; onReload(): void; onEdit(): void; onReport(t: ReportTarget): void; onJoin(): void;
 }) {
   const { toast } = useApp();
@@ -290,7 +350,7 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
   const joinable = room.status === 'OPEN' || room.status === 'COORDINATING';
   const people = room.participants.filter(p => p.status === 'ACTIVE');
   const me = people.find(p => p.memberId === myId);
-  const perPerson = perPersonFare(room.estimatedTaxiFareWon, riders(room));
+  const perPerson = perPersonFare(room.estimatedTaxiFareWon, riders(room) + (!isMember && room.canJoin ? party : 0));
   const confirmedCount = people.filter(p => p.confirmed).length;
 
   const confirm = async () => {
@@ -312,7 +372,7 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <GenderChip enabled={room.sameGenderOnly} />
       {/* fare + seats (replaces the mockup's car block) */}
       <div className="flex items-stretch gap-4">
@@ -367,7 +427,7 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
               <li key={p.memberId || i} className="flex items-center gap-3 py-3">
                 <Avatar name={p.nickname} size={34} tone={p.confirmed ? 'ink' : 'fog'} />
                 <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium">
-                  {p.nickname}{p.memberId === myId && <span className="text-mute"> (나)</span>}{p.role === 'HOST' && <span className="text-xs text-mute"> · 방장</span>}
+                  {p.nickname}{p.memberId === myId && <span className="text-mute"> (나)</span>}{p.role === 'HOST' && <span className="text-xs text-mute"> · 방장</span>}{p.passengerCount > 1 && <span className="text-xs text-mute"> · 일행 포함 {p.passengerCount}명</span>}
                 </span>
                 {p.confirmed ? <span className="chip bg-ink text-sun"><CheckIcon size={14} className="mr-0.5" />확정</span> : <span className="chip">대기</span>}
                 {isHost && joinable && p.role !== 'HOST' && p.memberId && <button type="button" className="text-xs font-semibold text-mute" onClick={() => remove(p.memberId, p.nickname)}>내보내기</button>}
@@ -391,14 +451,19 @@ function RideInfo({ room, myId, busy, onAct, onReload, onEdit, onReport, joinTri
               )}
             </div>
           )}
-          {room.status === 'CONFIRMED' && <Notice>모두 확정했어요. 약속 장소에서 만나 함께 택시를 잡으세요. 이제 약속과 채팅은 바꿀 수 없어요.</Notice>}
+          {room.status === 'CONFIRMED' && <Notice>모두 확정했어요. 약속 장소에서 만나 함께 택시를 잡으세요. 이제 약속과 채팅은 바꿀 수 없어요. 이동을 마치면 아래 ‘이동 완료’를 눌러 주세요. 그러면 메인 화면으로 돌아가고 새 동행을 시작할 수 있어요.</Notice>}
         </div>
       )}
 
       {!isMember && (
-        room.canJoin
+        room.ongoingRideRoomId
+          ? <div className="space-y-2">
+              <Notice>확정된 동행이 아직 끝나지 않아 이 방에 합류할 수 없어요. 이동을 마치고 ‘이동 완료’를 누른 뒤 다시 시도해 주세요.</Notice>
+              <button type="button" className="btn-fog w-full" onClick={onOpenOngoing}>진행 중인 동행 보기</button>
+            </div>
+          : room.canJoin
           ? joinTrip
-            ? <button type="button" className="btn-ink w-full" disabled={busy} onClick={onJoin}>내 이동으로 참여하기</button>
+            ? <div className="space-y-3"><PassengerCount value={party} max={room.seatsLeft} onChange={onParty} disabled={busy} /><button type="button" className="btn-ink w-full" disabled={busy || party > room.seatsLeft} onClick={onJoin}>{party}명 함께 합류하기</button></div>
             : <Notice>참여하려면 홈에서 출발지와 도착지를 먼저 검색해 주세요.</Notice>
           : <Notice>{roomStatusInfo[room.status].desc}</Notice>
       )}
@@ -463,7 +528,7 @@ function Chat({ room, onSaved, roomId, readOnly, messages, myId, onSent, onRepor
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={list} onScroll={e => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48; }}
-        className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain py-2">
+        className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain py-2">
         <p id="chat-privacy" className="px-4 text-center text-[0.7188rem] leading-relaxed text-mute">전화번호 등 개인정보는 채팅에 공유하지 마세요.</p>
         {messages.length === 0 && <p className="pt-8 text-center text-sm text-mute">아직 메시지가 없어요. 먼저 인사해 보세요.</p>}
         {messages.map(m => {

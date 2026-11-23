@@ -26,8 +26,10 @@ The callback is `${origin}${BASE_URL}auth/kakao`; PC iframe login opens at top l
 New Kakao members confirm their prefilled nickname; existing members only complete missing onboarding steps.
 See the root README's 카카오 로그인 section for console domains, redirect URIs, consent items, and server secret configuration.
 
-- **Home**: one GPS fix on entry / recenter (`getCurrentPosition`, never stored); falls back to 시흥시청.
-  Cards = `GET /api/rooms/open` near that fix. "지금 ▾" sets the departure. "현재 내 방" opens my active room.
+- **Home**: one GPS fix on entry / recenter (`getCurrentPosition`, never stored). The map alone falls back to 시흥시청;
+  the list never assumes a position. Cards and room pins = `GET /api/rooms/open` around the reference point
+  (that fix, or an origin picked by search — "선택한 출발지 기준"), radius from `src/config/nearbyRooms.ts`
+  (500 m, widen to 3 km). GPS pending → loading; denied/failed → guidance, "현재 위치 다시 확인", origin search. "지금 ▾" sets the departure. "현재 내 방" opens my active room.
 - **Select**: origin and destination only via place search. Both set → trip is created, route drawn and fitted,
   candidates searched. Tap a room → room introduction → "이 방 선택하기" (join). No match → "새 방 만들기"
   (capacity fixed at 3, fare split equally). Closing the sheet cancels the trip it created.

@@ -25,6 +25,8 @@ public enum ErrorCode {
     ROOM_FULL(HttpStatus.CONFLICT),
     ROOM_READ_ONLY(HttpStatus.CONFLICT),
     ALREADY_IN_ROOM(HttpStatus.CONFLICT),
+    /** The member is still in a CONFIRMED room (ride not finished): no new trip, room or join. */
+    RIDE_IN_PROGRESS(HttpStatus.CONFLICT),
     TERMS_VERSION_MISMATCH(HttpStatus.CONFLICT),
     MEETING_POINT_REQUIRED(HttpStatus.CONFLICT),
     LOCK_TIMEOUT(HttpStatus.SERVICE_UNAVAILABLE),

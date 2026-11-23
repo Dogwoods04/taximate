@@ -29,7 +29,7 @@ export type ErrorCode =
   | 'KAKAO_AUTH_FAILED' | 'NICKNAME_TAKEN'
   | 'VALIDATION_FAILED' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'MEMBER_RESTRICTED' | 'DEV_LOGIN_RESTRICTED'
   | 'LOCATION_CONSENT_REQUIRED' | 'ACTIVE_TRIP_EXISTS' | 'TRIP_NOT_SEARCHABLE' | 'ROUTE_UNAVAILABLE'
-  | 'ROUTE_EXPIRED' | 'ROOM_NOT_JOINABLE' | 'ROOM_FULL' | 'ROOM_READ_ONLY' | 'ALREADY_IN_ROOM'
+  | 'ROUTE_EXPIRED' | 'ROOM_NOT_JOINABLE' | 'ROOM_FULL' | 'ROOM_READ_ONLY' | 'ALREADY_IN_ROOM' | 'RIDE_IN_PROGRESS'
   | 'TERMS_VERSION_MISMATCH' | 'MEETING_POINT_REQUIRED' | 'LOCK_TIMEOUT' | 'EXTERNAL_API_ERROR'
   | 'GENDER_REQUIRED' | 'GENDER_RESTRICTED' | 'GENDER_SOURCE_LOCKED' | 'INTERNAL_ERROR';
 export interface ErrorResponse { code: ErrorCode; message: string; details: Record<string, unknown> }
@@ -38,7 +38,8 @@ export interface ErrorResponse { code: ErrorCode; message: string; details: Reco
 export type TripStatus = 'DRAFT' | 'SEARCHING' | 'MATCHED' | 'NO_MATCH' | 'CANCELLED' | 'EXPIRED';
 export type RoomStatus = 'OPEN' | 'COORDINATING' | 'CONFIRMED' | 'CLOSED' | 'CANCELLED' | 'EXPIRED';
 export type ParticipantRole = 'HOST' | 'MEMBER';
-export type ParticipantStatus = 'ACTIVE' | 'LEFT' | 'REMOVED';
+/** FINISHED: ended their own confirmed ride (이동 완료). */
+export type ParticipantStatus = 'ACTIVE' | 'LEFT' | 'REMOVED' | 'FINISHED';
 export type MemberStatus = 'ACTIVE' | 'RESTRICTED' | 'WITHDRAWN';
 export type MemberRole = 'USER' | 'ADMIN';
 export type MessageType = 'TEXT' | 'SYSTEM';
@@ -164,7 +165,7 @@ export interface CreateRoomRequest {
   terms: RoomTerms;
   departureAt?: ISODateTime;
 }
-export interface JoinRoomRequest { tripId: UUID }
+export interface JoinRoomRequest { tripId: UUID; passengerCount?: number }
 export interface UpdatePlanRequest { meetingPoint: MeetingPoint; departureAt: ISODateTime; terms: RoomTerms }
 /** Host only, JOINABLE and non-hidden room; route failure rolls back the change. */
 export interface UpdateDestinationRequest { destination: PlaceRef }
@@ -191,6 +192,15 @@ export interface RoomSummary {
   routeDistanceMeters: number | null;  // host route length (m); null if the host trip has no route
   routeDurationSeconds: number | null; // host route driving time (s); the room map shows it like the select screen
 }
+/** Reference point → boarding spot. MEETING_POINT: the host moved the meeting point away from the room's origin. */
+export type DistanceBasis = 'MEETING_POINT' | 'ORIGIN';
+/** GET /api/rooms/open item: a RoomSummary plus its straight-line distance (not a walking distance). */
+export interface NearbyRoom extends RoomSummary {
+  distanceMeters: number; // to meetingPoint.location when set, else approxOrigin; rounded to 10 m
+  distanceBasis: DistanceBasis;
+}
+/** GET /api/rooms/open — rooms whose boarding spot is within radiusMeters, nearest first (then earliest departure). */
+export interface NearbyRooms { radiusMeters: number; rooms: NearbyRoom[]; hasMore: boolean }
 export interface Participant {
   memberId: UUID;
   nickname: string;
@@ -210,6 +220,8 @@ export interface RoomDetail extends RoomSummary {
   allConfirmed: boolean;
   participants: Participant[];
   routePreview: LatLng[];
+  /** The caller's other CONFIRMED room whose ride has not finished; joining waits until it is. */
+  ongoingRideRoomId: UUID | null;
 }
 
 // ---------- conversation ----------
