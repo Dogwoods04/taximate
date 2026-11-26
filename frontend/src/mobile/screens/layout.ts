@@ -17,10 +17,13 @@ export const maxSheetHeight = ({ h }: Size) => Math.max(0, h - sheetTopLimit());
 
 /** On-the-way sheet height; the map shows above it. */
 // Short phones (≤700px tall) keep a smaller map strip so the sheet's content and buttons still fit.
-export const otwSheetHeight = (size: Size) => Math.max(0, Math.round(Math.min(maxSheetHeight(size), size.h - (size.h <= 700 ? 190 : 250), Math.max(450 * remScale(), size.h * 0.56))));
+export const otwSheetHeight = (size: Size) => Math.max(0, Math.round(Math.min(maxSheetHeight(size), size.h - 240, Math.max(340 * remScale(), size.h * 0.48))));
 /** Select sheet heights per mode. */
 export const selectSheetHeight = (size: Size, mode: 'list' | 'search' | 'detail') =>
-  mode !== 'list' ? maxSheetHeight(size) : Math.max(0, Math.round(Math.min(maxSheetHeight(size), size.h - 170, Math.max(540 * remScale(), size.h * 0.64))));
+  mode !== 'list' ? maxSheetHeight(size) : Math.max(0, Math.round(Math.min(maxSheetHeight(size), size.h - 240, Math.max(380 * remScale(), size.h * 0.52))));
+
+/** Home defaults to a compact list, with room to reveal the full map by collapsing it. */
+export const homeSheetHeight = (size: Size) => Math.max(0, Math.round(Math.min(maxSheetHeight(size), Math.max(290 * remScale(), size.h * 0.38))));
 
 /** Top safe area + the black back pill (top 48 + 56px high) and a small gap. */
 export const TOP_OVERLAY = 116;

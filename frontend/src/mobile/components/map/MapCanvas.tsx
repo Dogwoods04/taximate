@@ -79,7 +79,6 @@ const KakaoCanvas = forwardRef<InnerHandle, InnerProps & { onFail(): void }>(fun
   }, []);
   useEffect(() => { if (ready) readyCb.current(); }, [ready]);
 
-  const signature = JSON.stringify(layers);
   useEffect(() => {
     const k = kakao.current, m = map.current;
     if (!ready || !k || !m) return;
@@ -97,11 +96,25 @@ const KakaoCanvas = forwardRef<InnerHandle, InnerProps & { onFail(): void }>(fun
       }
     }
     for (const marker of layers.markers ?? []) {
-      overlays.current.push(new k.maps.CustomOverlay({ map: m, position: ll(marker.position), content: markerHtml(marker), xAnchor: 0.5, yAnchor: 0.5, zIndex: marker.kind === 'me' ? 1 : 3 }));
+      let content: string | HTMLButtonElement = markerHtml(marker);
+      if (marker.onSelect) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.setAttribute('aria-label', marker.ariaLabel ?? `${marker.label ?? '동행'} 방 보기`);
+        button.style.cssText = 'width:44px;height:44px;padding:0;border:0;background:transparent;display:grid;place-items:center;cursor:pointer;touch-action:manipulation;border-radius:50%';
+        button.innerHTML = markerHtml(marker);
+        button.addEventListener('pointerdown', e => e.stopPropagation());
+        button.addEventListener('mousedown', e => e.stopPropagation());
+        button.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+        button.addEventListener('click', e => { e.stopPropagation(); marker.onSelect?.(); });
+        content = button;
+      }
+      overlays.current.push(new k.maps.CustomOverlay({ map: m, position: ll(marker.position), content, clickable: !!marker.onSelect, xAnchor: 0.5, yAnchor: 0.5, zIndex: marker.onSelect ? 4 : marker.kind === 'me' ? 1 : 3 }));
     }
     if (layers.bubble) overlays.current.push(new k.maps.CustomOverlay({ map: m, position: ll(layers.bubble.position), content: bubbleHtml(layers.bubble), xAnchor: 0.5, yAnchor: 0.5, zIndex: 5 }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, signature]);
+    return () => { overlays.current.forEach(o => o.setMap(null)); overlays.current = []; };
+  }, [ready, layers]);
 
   useImperativeHandle(ref, () => {
     /** Map centre that puts `point` at the visible-area centre (at the current level). */
@@ -226,7 +239,12 @@ const SchematicCanvas = forwardRef<InnerHandle, InnerProps>(function SchematicCa
 
   // Drag to pan, wheel to zoom.
   const drag = useRef<{ x: number; y: number; view: View } | null>(null);
-  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => { cancelAnimationFrame(anim.current); drag.current = { x: e.clientX, y: e.clientY, view }; e.currentTarget.setPointerCapture(e.pointerId); };
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!e.isPrimary || e.button !== 0 || (e.target as Element).closest('button')) return;
+    cancelAnimationFrame(anim.current);
+    drag.current = { x: e.clientX, y: e.clientY, view };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const d = drag.current;
     if (!d) return;
@@ -289,6 +307,10 @@ const SchematicCanvas = forwardRef<InnerHandle, InnerProps>(function SchematicCa
       })}
       {w > 0 && (layers.markers ?? []).map((m, i) => {
         const p = toScreen(m.position);
+        if (m.onSelect) return <button key={m.id ?? `${m.kind}${i}`} type="button" aria-label={m.ariaLabel ?? `${m.label ?? '동행'} 방 보기`}
+          className="absolute z-[4] grid h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-manipulation place-items-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+          style={{ left: p.x, top: p.y }} onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); m.onSelect?.(); }}
+          dangerouslySetInnerHTML={{ __html: markerHtml(m) }} />;
         return <div key={`${m.kind}${i}`} className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2" style={{ left: p.x, top: p.y, zIndex: m.kind === 'me' ? 1 : 3 }} dangerouslySetInnerHTML={{ __html: markerHtml(m) }} />;
       })}
       {w > 0 && layers.bubble && (() => {

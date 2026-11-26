@@ -86,6 +86,13 @@ taximate:
       overlap: 0.30
       departure-time: 0.20
       detour: 0.10
+  rooms:
+    nearby:                           # Home "근처 열린 방" (GET /api/rooms/open)
+      default-radius-meters: 500      # used when the client omits radiusMeters
+      max-radius-meters: 3000         # widest radius a client may request ("넓혀 보기")
+      max-results: 20                 # rooms returned after distance ordering (hasMore = more matched)
+    lifecycle:
+      confirmed-auto-close-minutes: 180 # a CONFIRMED room nobody finished closes this long after its departure window
   meeting-point:
     near-radius-meters: 200
     max-radius-meters: 500

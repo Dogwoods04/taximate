@@ -6,6 +6,7 @@ import { useAction, useApp } from '../../lib/app';
 import { demoPrefix, nicknameValid, stripPrefix, useAuthOptions, withPrefix } from '../../lib/authOptions';
 import { kakaoPendingName } from '../../lib/kakaoLogin';
 import { Notice, Sheet } from '../components/ui';
+import { clearSavedPlaces } from '../../lib/savedPlaces';
 
 export default function GenderStep({ onDone, profile = false }: { onDone?(member: Member): void; profile?: boolean }) {
   const { member, setMember, toast } = useApp();
@@ -31,7 +32,9 @@ export default function GenderStep({ onDone, profile = false }: { onDone?(member
     if (onDone) onDone(updated);
     else { toast('내 정보를 저장했어요.', 'info'); navigate('/'); }
   };
-  return <div className="flex min-h-full flex-1 flex-col overflow-y-auto bg-ink px-6 pb-8 pt-12 text-white">
+  // Keep the scroll viewport inside the fixed-height app frame; let only its content grow.
+  return <div className="h-full min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-ink text-white">
+    <div className="flex min-h-full flex-col px-6 pb-[max(32px,env(safe-area-inset-bottom))] pt-12">
     {profile && <button type="button" onClick={() => navigate('/')} className="self-start py-3 text-white/70">← 돌아가기</button>}
     <p className="mt-10 text-[0.9375rem] font-semibold text-sun">{profile ? '내 정보' : '2 / 4'}</p>
     {profile && <section className="mt-6 space-y-3">
@@ -58,6 +61,7 @@ export default function GenderStep({ onDone, profile = false }: { onDone?(member
     {locked && <p className="mt-4 text-sm text-white/60">카카오에서 가져온 성별은 여기서 변경할 수 없어요.</p>}
     <button type="button" disabled={!gender || busy || locked} onClick={save} className="btn-sun mt-auto w-full shrink-0 translate-y-0">{busy ? '저장하는 중…' : profile ? '저장하기' : '계속'}</button>
     {profile && <button type="button" onClick={() => setWithdrawing(true)} className="mx-auto mt-5 shrink-0 py-2 text-[0.8125rem] text-white/40 underline underline-offset-4">회원 탈퇴</button>}
+    </div>
     {withdrawing && <WithdrawSheet onClose={() => setWithdrawing(false)} />}
   </div>;
 }
@@ -70,12 +74,13 @@ const WITHDRAW_EFFECTS = [
 ];
 
 function WithdrawSheet({ onClose }: { onClose(): void }) {
-  const { logout, toast } = useApp();
+  const { member, logout, toast } = useApp();
   const { busy, run } = useAction();
   const navigate = useNavigate();
   const withdraw = async () => {
     const done = await run(async () => { await api.identity.deleteAccount(); return true; });
     if (!done) return;
+    clearSavedPlaces(member?.id);
     sessionStorage.removeItem(kakaoPendingName);
     logout();
     navigate('/start', { replace: true });

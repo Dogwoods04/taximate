@@ -1,4 +1,7 @@
 import GenderChip from '../components/GenderChip';
+import PassengerCount from '../components/PassengerCount';
+import SavedDestinations from '../components/SavedDestinations';
+import { useSavedPlaces } from '../../lib/savedPlaces';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { api } from '../../api';
 import type { LatLng, WalkRoute, MatchCandidate, MatchCandidatesResponse, PlaceRef, RoomDetail, RoomSummary, TripIntent } from '../../api/contract';
@@ -13,6 +16,7 @@ import { ArrowIcon, BulbIcon, ChevronLeftIcon, ClockIcon, CloseIcon, PersonIcon,
 import { Avatar, FARE_DISCLAIMER, Notice, Spinner, Toggle, useSlideIn } from '../components/ui';
 import { otwInsets, selectSheetHeight, sheetInsets } from './layout';
 import { SheetHandle, useSheetDrag } from './useSheetDrag';
+import { useHorizontalDrag } from '../useHorizontalDrag';
 
 type Field = 'origin' | 'destination';
 type Mode = 'list' | 'create' | 'detail' | 'preview';
@@ -26,6 +30,8 @@ interface Props {
   bias?: LatLng;
   departureAt(): string;
   departureText: string;
+  passengerCount: number;
+  onPassengerCountChange(value: number): void;
   /** Opens the departure-time picker (owned by Home). */
   onEditDeparture(): void;
   onClose(): void;
@@ -67,9 +73,10 @@ export function roomLayers(room: { approxOrigin: LatLng; approxDestination: LatL
 export const roomPoints = (room: { approxOrigin: LatLng; approxDestination: LatLng; meetingPoint: { location: LatLng } | null }, path: LatLng[]) =>
   [...(path.length > 1 ? path : []), room.approxOrigin, room.approxDestination, ...(room.meetingPoint ? [room.meetingPoint.location] : [])];
 
-export default function SelectSheet({ initialDestination, initialRoom, bias, departureAt, departureText, onEditDeparture, onClose, onRoomReady }: Props) {
+export default function SelectSheet({ initialDestination, initialRoom, bias, departureAt, departureText, passengerCount, onPassengerCountChange, onEditDeparture, onClose, onRoomReady }: Props) {
   const map = useMap();
-  const { toast } = useApp();
+  const { toast, member } = useApp();
+  const savedPlaces = useSavedPlaces(member?.id);
   const onError = useErrorHandler();
   const { busy, run } = useAction();
   const { shown, close } = useSlideIn(onClose, 420);
@@ -88,17 +95,19 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<MatchCandidate | null>(null);
   const [exiting, setExiting] = useState(false);
+  const joinParty = passengerCount;
+  const setJoinParty = onPassengerCountChange;
   const tripRef = useRef<TripIntent | null>(null);
   const kept = useRef(false);
   const seq = useRef(0);
   const strip = useRef<HTMLDivElement>(null);
 
-  const sheetMode = searching ? 'search' : mode === 'detail' ? 'detail' : 'list';
+  const sheetMode = searching ? 'search' : mode === 'detail' ? 'detail' : mode === 'create' ? 'create' : 'list';
   const collapseSearch = () => {
     if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
     setSearching(null);
   };
-  const sheet = useSheetDrag(map.size, selectSheetHeight(map.size, 'list'), sheetMode, sheetMode !== 'list', collapseSearch);
+  const sheet = useSheetDrag(map.size, selectSheetHeight(map.size, 'list'), sheetMode, sheetMode === 'search' || sheetMode === 'create', collapseSearch, { collapsedHeight: 112 });
   const sheetH = sheet.settledHeight;
   useEffect(() => { map.setCover(sheet.progress, sheet.dragging); }, [map, sheet.progress, sheet.dragging]);
   useEffect(() => { map.setAttributionInset(sheet.style.height, sheet.dragging); }, [map, sheet.style.height, sheet.dragging]);
@@ -172,7 +181,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
     tripRef.current = null;
     setTrip(null);
     if (previous) await api.trips.cancel(previous.id).catch(() => {});
-    const body = { origin: o, destination: d, desiredDepartureAt: departureAt(), maxWaitMinutes: 15, maxDetourMinutes: 10, passengerCount: 1 };
+    const body = { origin: o, destination: d, desiredDepartureAt: departureAt(), maxWaitMinutes: 15, maxDetourMinutes: 10, passengerCount: joinParty };
     let t: TripIntent;
     try {
       try { t = await api.trips.create(body); }
@@ -192,9 +201,10 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
     showMine(t, o, d, selectSheetHeight(map.size, 'list'));
     if (!t.route) { setPhase('noroute'); return; }
     void loadCandidates(t);
-  }, [departureAt, loadCandidates, map.size, onError, showMine, toast]);
+  }, [departureAt, loadCandidates, map.size, onError, showMine, toast, joinParty]);
 
   const choose = (field: Field, place: PlaceRef) => {
+    if (field === 'destination') savedPlaces.rememberDestination(place);
     const o = field === 'origin' ? place : origin, d = field === 'destination' ? place : destination;
     setOrigin(o); setDestination(d); setSearching(null);
     if (o && d) { showMine(null, o, d, selectSheetHeight(map.size, 'list')); void createTrip(o, d); }
@@ -224,14 +234,15 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Departure changed from the condition row: register the trip again with the new time and search again.
-  const lastDeparture = useRef(departureText);
+  // Apply the departure time and party together, then search using the required seat count.
+  const lastConditions = useRef({ departureText, passengerCount });
   useEffect(() => {
-    if (lastDeparture.current === departureText) return;
-    lastDeparture.current = departureText;
-    if (origin && destination && mode !== 'detail') void createTrip(origin, destination);
+    const previous = lastConditions.current;
+    if (previous.departureText === departureText && previous.passengerCount === passengerCount) return;
+    lastConditions.current = { departureText, passengerCount };
+    if (origin && destination && mode !== 'detail' && mode !== 'preview') void createTrip(origin, destination);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [departureText]);
+  }, [departureText, passengerCount]);
 
   const retryRoute = async () => {
     if (!trip) return;
@@ -244,6 +255,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
 
   // ---- detail (room introduction) and joining
   const openDetail = (c: MatchCandidate) => {
+    setJoinParty(Math.max(1, Math.min(joinParty, c.seatsLeft, 3)));
     setSelectedId(c.roomId);
     setDetail(c);
     setMode('detail');
@@ -289,7 +301,8 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
     if (!r) return;
     const o = { name: r.meetingPoint?.name ?? originTitle(r), address: null, location: pickupOf(r), kind: 'SEARCH', providerPlaceId: null } as unknown as PlaceRef;
     const d = { name: destinationTitle(r), address: null, location: r.approxDestination, kind: 'SEARCH', providerPlaceId: null } as unknown as PlaceRef;
-    const body = { origin: o, destination: d, desiredDepartureAt: r.departureAt, maxWaitMinutes: 15, maxDetourMinutes: 10, passengerCount: 1 };
+    if (joinParty > r.seatsLeft) { toast('선택한 인원보다 남은 좌석이 적어요. 인원을 다시 선택해 주세요.'); return; }
+    const body = { origin: o, destination: d, desiredDepartureAt: r.departureAt, maxWaitMinutes: 15, maxDetourMinutes: 10, passengerCount: joinParty };
     const joined = await run(async () => {
       let t: TripIntent;
       try { t = await api.trips.create(body); }
@@ -300,7 +313,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
         t = await api.trips.create(body);
       }
       tripRef.current = t;
-      try { return await api.rooms.join(r.id, { tripId: t.id }); }
+      try { return await api.rooms.join(r.id, { tripId: t.id, passengerCount: joinParty }); }
       catch (error) { tripRef.current = null; await api.trips.cancel(t.id).catch(() => {}); throw error; }
     });
     if (joined) { toast('방에 참여했어요!', 'info'); finish(joined, joined.routePreview); }
@@ -309,6 +322,10 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
   const closeDetail = () => {
     setMode('list');
     setDetail(null);
+    if (origin && destination && trip?.passengerCount !== joinParty) {
+      void createTrip(origin, destination);
+      return;
+    }
     showMine(trip, origin, destination, selectSheetHeight(map.size, 'list'));
   };
 
@@ -322,7 +339,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
   };
   const join = async (c: MatchCandidate) => {
     if (!trip) return;
-    const joined = await run(() => api.rooms.join(c.roomId, { tripId: trip.id }));
+    const joined = await run(() => api.rooms.join(c.roomId, { tripId: trip.id, passengerCount: joinParty }));
     if (joined) { toast('방에 참여했어요!', 'info'); finish(joined, joined.routePreview.length > 1 ? joined.routePreview : c.routePreview); }
   };
   const create = async (note: string, luggageAllowed: boolean, party: number) => {
@@ -362,31 +379,32 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
       </button>
 
       <section
+        data-draggable-sheet
         aria-label="출발지·도착지 선택"
         className={`ease-sheet pointer-events-auto absolute inset-x-0 bottom-0 flex flex-col rounded-t-sheet bg-white shadow-sheet transition-[height,transform] duration-500 ${visible ? 'translate-y-0' : 'translate-y-full'}`}
         style={sheet.style}
       >
         <SheetHandle controls={sheet} />
-        {mode === 'preview' && preview && !searching ? (
-          <RoomPreview room={preview} detail={previewDetail} walk={walk} busy={busy} onClose={close} onGo={askJoin} onCancelWalk={cancelWalk} onConfirm={confirmJoin} />
+        {sheet.collapsed ? <div className="flex min-h-14 items-center px-6"><span className="min-w-0 truncate font-semibold">{previewRoom ? destinationTitle(previewRoom) : destination?.name ?? '출발지·도착지 선택'}</span></div> : mode === 'preview' && preview && !searching ? (
+          <RoomPreview room={preview} detail={previewDetail} walk={walk} busy={busy} party={joinParty} onParty={setJoinParty} onClose={close} onGo={askJoin} onCancelWalk={cancelWalk} onConfirm={confirmJoin} />
         ) : mode === 'detail' && detail && !searching ? (
-          <RoomIntro candidate={detail} trip={trip} busy={busy} departureText={departureText}
+          <RoomIntro candidate={detail} trip={trip} busy={busy} departureText={departureText} party={joinParty} onParty={setJoinParty}
             otherTime={!!result?.otherTimeCandidates?.some(c => c.roomId === detail.roomId)} onBack={closeDetail} onJoin={() => join(detail)} />
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col px-6 pb-[max(20px,env(safe-area-inset-bottom))] pt-5">
+          <div className="flex min-h-0 flex-1 flex-col px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-1">
             <Fields origin={origin} destination={destination} active={searching} onActivate={setSearching} onSwap={swap} disabled={busy} />
             {searching ? (
               <PlaceResults onBlur={collapseSearch} field={searching} bias={origin?.location ?? bias} onChoose={p => choose(searching, p)} />
             ) : mode === 'create' && trip ? (
-              <CreateArea trip={trip} departureText={departureText} busy={busy} onCancel={() => setMode('list')} onCreate={create} />
+              <CreateArea trip={trip} candidates={candidates} onOpen={openDetail} departureText={departureText} busy={busy} onCancel={() => setMode('list')} onCreate={create} />
             ) : (
               <>
                 {/* Cards + conditions scroll on short phones; the main button below always stays visible. */}
                 <div className="no-scrollbar -mx-6 flex min-h-0 flex-1 flex-col overflow-y-auto px-6">
-                <CardArea phase={phase} result={result} selectedId={selectedId} strip={strip} departureText={departureText}
+                <CardArea phase={phase} result={result} selectedId={selectedId} strip={strip} departureText={departureText} passengerCount={passengerCount}
                   onOpen={openDetail} onRefresh={() => trip && loadCandidates(trip)} onRetryRoute={retryRoute} onCreate={() => setMode('create')} />
                 {phase === 'ready' && (
-                  <ConditionRow departureText={departureText} passengers={trip?.passengerCount ?? 1} onChange={onEditDeparture} />
+                  <ConditionRow departureText={departureText} passengers={passengerCount} onChange={onEditDeparture} />
                 )}
                 </div>
                 {phase !== 'idle' && <div className="mt-4 shrink-0">
@@ -419,7 +437,7 @@ function Fields({ origin, destination, active, onActivate, onSwap, disabled }: {
       <button type="button" data-search-field onClick={() => onActivate(field)} disabled={disabled}
         // While a search input is open, keep its focus: switching origin <-> destination must not blur (= collapse) the sheet first.
         onPointerDown={e => { if (active) e.preventDefault(); }}
-        className={`flex h-[52px] w-full items-center gap-4 text-left ${active === field ? 'opacity-100' : ''}`}>
+        className={`flex h-11 w-full items-center gap-3 text-left ${active === field ? 'opacity-100' : ''}`}>
         <ArrowIcon size={22} className={`-scale-x-100 shrink-0 ${isOrigin ? 'text-[#BDBDBD]' : 'text-ink'}`} />
         <span className={`truncate text-[1.0625rem] ${place ? (isOrigin ? 'text-mute-dark' : 'font-medium text-ink') : 'text-mute'} ${active === field ? 'font-semibold text-ink' : ''}`}>
           {place?.name ?? (isOrigin ? '출발지 검색' : '도착지 검색')}
@@ -431,24 +449,27 @@ function Fields({ origin, destination, active, onActivate, onSwap, disabled }: {
     <div className="flex shrink-0 items-center gap-3">
       <div className="relative min-w-0 flex-1">
         {row('origin', origin)}
-        <div className="absolute left-[10px] top-[44px] h-3 border-l-2 border-dotted border-[#C8C8C8]" />
+        <div className="absolute left-[10px] top-[38px] h-3 border-l-2 border-dotted border-[#C8C8C8]" />
         <div className="ml-[38px] border-t border-line" />
         {row('destination', destination)}
       </div>
       <button type="button" onClick={onSwap} disabled={disabled || (!origin && !destination)} aria-label="출발지와 도착지 바꾸기"
-        className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-fog text-mute transition active:scale-95 disabled:opacity-50">
+        className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-fog text-mute transition active:scale-95 disabled:opacity-50">
         <SwapIcon size={22} />
       </button>
     </div>
   );
 }
 
-function PlaceResults({ field, bias, onChoose, onBlur }: { field: Field; bias?: LatLng; onChoose(p: PlaceRef): void; onBlur(): void }) {
+export function PlaceResults({ field, bias, onChoose, onBlur, hint }: { field: Field; bias?: LatLng; onChoose(p: PlaceRef): void; onBlur(): void; hint?: ReactNode }) {
   const onError = useErrorHandler();
+  const { member } = useApp();
+  const saved = useSavedPlaces(member?.id);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PlaceRef[] | null>(null);
   const [loading, setLoading] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const container = useRef<HTMLDivElement>(null);
   // iOS Safari blurs the input on a tap even when pointerdown is prevented, and the blur closes this list before the
   // tap's click arrives — so a result is picked on pointerup (a tap, not a scroll) and a blur during a press is ignored.
   const press = useRef<{ x: number; y: number } | null>(null);
@@ -457,8 +478,8 @@ function PlaceResults({ field, bias, onChoose, onBlur }: { field: Field; bias?: 
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       const target = event.target as Element;
-      if (target.closest('input, label, ul, [data-sheet-handle], [data-search-field]')) return;
-      input.current?.blur();
+      if (container.current?.contains(target) || target.closest('[data-sheet-handle], [data-search-field]')) return;
+      onBlur();
     };
     // A press that ends off the results (finger slid away) must not keep suppressing blur.
     const release = () => { press.current = null; };
@@ -469,8 +490,9 @@ function PlaceResults({ field, bias, onChoose, onBlur }: { field: Field; bias?: 
   useEffect(() => { chosen.current = false; press.current = null; setQuery(''); setResults(null); const t = setTimeout(() => input.current?.focus(), 60); return () => clearTimeout(t); }, [field]);
   useEffect(() => {
     const q = query.trim();
-    if (!q) { setResults(null); return; }
+    if (!q) { setResults(null); setLoading(false); return; }
     let cancelled = false;
+    setResults(null);
     setLoading(true);
     const t = setTimeout(() => {
       api.places.search(q, bias)
@@ -482,31 +504,39 @@ function PlaceResults({ field, bias, onChoose, onBlur }: { field: Field; bias?: 
   }, [query, bias, onError]);
 
   return (
-    <div className="mt-4 flex min-h-0 flex-1 flex-col">
+    <div ref={container} className="mt-3 flex min-h-0 flex-1 flex-col" onBlurCapture={e => { const next = e.relatedTarget as Element | null; if (next && !e.currentTarget.contains(next) && !next.closest('[data-sheet-handle], [data-search-field]')) onBlur(); }}>
       <label className="flex h-14 shrink-0 items-center gap-3 rounded-2xl bg-fog px-4">
         <SearchIcon size={20} className="text-mute" />
-        <input ref={input} value={query} onBlur={() => { if (!press.current) onBlur(); }} onChange={e => setQuery(e.target.value)} enterKeyHint="search"
+        <input ref={input} value={query} onChange={e => setQuery(e.target.value)} enterKeyHint="search" aria-label={field === 'origin' ? '출발지 검색' : '도착지 검색'} onKeyDown={e => { if (e.key === 'Escape') onBlur(); if (e.key === 'ArrowDown') { e.preventDefault(); container.current?.querySelector<HTMLButtonElement>('[data-place-result]')?.focus(); } }}
           placeholder={field === 'origin' ? '어디서 출발하세요? (예: 정왕역)' : '어디로 가세요? (예: 시흥시청)'}
           className="min-w-0 flex-1 bg-transparent text-[1.0625rem] outline-none placeholder:text-mute" />
         {query && <button type="button" onPointerDown={e => e.preventDefault()} onClick={() => setQuery('')} aria-label="지우기" className="text-mute"><CloseIcon size={18} /></button>}
       </label>
       <div className="mt-2 min-h-0 flex-1 overflow-y-auto">
         {loading && !results && <Spinner />}
-        {!query.trim() && <PlaceNameHint className="mt-4">역·건물·가게처럼 누구나 아는 장소 이름으로 검색해 주세요. 방을 열면 고른 장소 이름이 다른 이웃에게 그대로 보여요.</PlaceNameHint>}
+        {!query.trim() && (field === 'destination' ? <SavedDestinations onChoose={pick} /> : <PlaceNameHint className="mt-4">{hint ?? '역·건물·가게처럼 누구나 아는 장소 이름으로 검색해 주세요. 방을 열면 고른 장소 이름이 다른 이웃에게 그대로 보여요.'}</PlaceNameHint>)}
         {results?.length === 0 && <p className="px-1 py-6 text-sm text-mute">검색 결과가 없어요. 다른 이름으로 찾아 주세요.</p>}
         <ul onPointerDown={e => { if ((e.target as Element).closest('button')) { e.preventDefault(); press.current = { x: e.clientX, y: e.clientY }; } }}
           onPointerCancel={() => { press.current = null; }}>
           {results?.map((p, i) => (
-            <li key={p.providerPlaceId ?? i} className="border-b border-line last:border-0">
-              <button type="button" onClick={() => pick(p)}
+            <li key={p.providerPlaceId ?? i} className="flex items-center gap-1 border-b border-line last:border-0">
+              <button type="button" data-place-result onClick={e => { if (e.detail === 0) pick(p); }}
                 onPointerUp={e => { const s = press.current; press.current = null; if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 12) pick(p); }}
-                className="flex w-full items-center gap-4 py-4 text-left transition active:bg-fog-soft">
+                className="flex min-w-0 flex-1 items-center gap-4 py-4 text-left transition active:bg-fog-soft">
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-fog"><ArrowIcon size={16} className="-scale-x-100" /></span>
-                <span className="min-w-0">
+                <span className="min-w-0 flex-1">
                   <span className="block truncate text-[1rem] font-semibold">{p.name ?? '이름 없는 장소'}</span>
                   {p.address && <span className="block truncate text-[0.8125rem] text-mute">{p.address}</span>}
                 </span>
               </button>
+              {field === 'destination' && <button type="button"
+                aria-label={`${p.name ?? '장소'} 즐겨찾기 ${saved.isFavorite(p) ? '해제' : '추가'}`}
+                aria-pressed={saved.isFavorite(p)}
+                onPointerUp={e => { const start = press.current; press.current = null; if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 12) saved.toggleFavorite(p); }}
+                onClick={e => { if (e.detail === 0) saved.toggleFavorite(p); }}
+                className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-2xl transition active:bg-fog ${saved.isFavorite(p) ? 'text-[#A66B00]' : 'text-mute'}`}>
+                <span aria-hidden="true">{saved.isFavorite(p) ? '★' : '☆'}</span>
+              </button>}
             </li>
           ))}
         </ul>
@@ -517,11 +547,12 @@ function PlaceResults({ field, bias, onChoose, onBlur }: { field: Field; bias?: 
 
 // ---------------------------------------------------------------- card area (candidates)
 
-function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onRefresh, onRetryRoute, onCreate }: {
-  phase: Phase; result: MatchCandidatesResponse | null; selectedId: string | null; strip: RefObject<HTMLDivElement>; departureText: string;
+function CardArea({ phase, result, selectedId, strip, departureText, passengerCount, onOpen, onRefresh, onRetryRoute, onCreate }: {
+  phase: Phase; result: MatchCandidatesResponse | null; selectedId: string | null; strip: RefObject<HTMLDivElement>; departureText: string; passengerCount: number;
   onOpen(c: MatchCandidate): void; onRefresh(): void; onRetryRoute(): void; onCreate(): void;
 }) {
   const body = 'mt-5 flex min-h-[11.875rem] flex-1 shrink-0 flex-col';
+  const carousel = useHorizontalDrag(strip);
   if (phase === 'idle') {
     return (
       <p className="mt-5 flex shrink-0 items-start gap-2.5 rounded-2xl bg-fog-soft px-4 py-3 text-[0.8438rem] leading-snug text-mute-dark">
@@ -554,12 +585,13 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
         </div>
       </div>
       {candidates.length ? (
-        <div ref={strip} className="no-scrollbar -mx-6 mt-3 flex shrink-0 snap-x snap-mandatory scroll-px-6 gap-4 overflow-x-auto px-6 pb-1">
-          {candidates.map(c => <CandidateCard key={c.roomId} c={c} selected={c.roomId === selectedId} onOpen={() => onOpen(c)} />)}
+        <div ref={strip} {...carousel.handlers} aria-label="비슷한 동선의 방 목록"
+          className={`no-scrollbar -mx-6 mt-3 flex min-w-0 shrink-0 select-none snap-x snap-mandatory scroll-px-6 gap-4 overflow-x-auto overscroll-x-contain px-6 pb-1 ${carousel.dragging ? 'cursor-grabbing' : 'cursor-grab'}`}>
+          {candidates.map(c => <CandidateCard key={c.roomId} c={c} passengerCount={passengerCount} selected={c.roomId === selectedId} onOpen={() => onOpen(c)} />)}
         </div>
       ) : others.length ? (
         <div ref={strip} className="no-scrollbar -mx-6 mt-3 flex shrink-0 snap-x snap-mandatory scroll-px-6 gap-4 overflow-x-auto px-6 pb-1">
-          {others.map(c => <CandidateCard key={c.roomId} c={c} otherTime selected={c.roomId === selectedId} onOpen={() => onOpen(c)} />)}
+          {others.map(c => <CandidateCard key={c.roomId} c={c} passengerCount={passengerCount} otherTime selected={c.roomId === selectedId} onOpen={() => onOpen(c)} />)}
         </div>
       ) : (
         <div className="mt-3 flex flex-1 flex-col justify-center rounded-card bg-fog-soft px-6 py-5">
@@ -574,9 +606,9 @@ function CardArea({ phase, result, selectedId, strip, departureText, onOpen, onR
   );
 }
 
-function CandidateCard({ c, selected, otherTime = false, onOpen }: { c: MatchCandidate; selected: boolean; otherTime?: boolean; onOpen(): void }) {
+function CandidateCard({ c, passengerCount, selected, otherTime = false, onOpen }: { c: MatchCandidate; passengerCount: number; selected: boolean; otherTime?: boolean; onOpen(): void }) {
   const near = c.tier === 'NEAR';
-  const fare = perPersonFare(c.room.estimatedTaxiFareWon, riders(c.room) + 1);
+  const fare = perPersonFare(c.room.estimatedTaxiFareWon, riders(c.room) + passengerCount);
   return (
     <button type="button" onClick={onOpen}
       className={`relative w-[72%] shrink-0 snap-start overflow-hidden rounded-card border bg-white text-left transition active:scale-[.98] ${selected ? 'border-ink' : 'border-line'}`}>
@@ -678,24 +710,29 @@ function ConditionRow({ departureText, passengers, onChange }: { departureText: 
 
 // ---------------------------------------------------------------- new room
 
-function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: TripIntent; departureText: string; busy: boolean; onCancel(): void; onCreate(note: string, luggage: boolean, party: number): void }) {
+function CreateArea({ trip, candidates, onOpen, departureText, busy, onCancel, onCreate }: { trip: TripIntent; candidates: MatchCandidate[]; onOpen(candidate: MatchCandidate): void; departureText: string; busy: boolean; onCancel(): void; onCreate(note: string, luggage: boolean, party: number): void }) {
   const [note, setNote] = useState('');
   /** People riding with the host, host included. At least one seat must stay open for others. */
   const [party, setParty] = useState(Math.min(trip.passengerCount, CAPACITY - 1));
   const [luggage, setLuggage] = useState(true);
+  const [showSimilar, setShowSimilar] = useState(false);
   const fare = trip.route?.taxiFareWon ?? null;
   return (
-    <div className="mt-6 flex min-h-0 flex-1 flex-col">
+    <div className="mt-3 flex min-h-0 flex-1 flex-col">
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="text-[1.1875rem] font-bold tracking-tight">방 소개를 적어 주세요</h3>
           <button type="button" className="btn-text" onClick={onCancel}>목록</button>
         </div>
-        <PlaceNameHint className="mt-3">출발지·목적지는 역, 공공기관, 건물처럼 누구나 아는 장소로 정해 주세요. 이 이름과 예상 경로가 방 목록에 그대로 보여요. 집 주소 대신 가까운 공공장소를 고르면 더 안전해요.</PlaceNameHint>
+        {candidates.length > 0 && <section className="mt-2 rounded-2xl border border-line">
+          <button type="button" aria-expanded={showSimilar} className="flex min-h-11 w-full items-center justify-between px-3 text-sm font-medium" onClick={() => setShowSimilar(v => !v)}><span>참여 가능한 비슷한 방 {candidates.length}개</span><span>{showSimilar ? '접기 −' : '보기 +'}</span></button>
+          {showSimilar && <div className="max-h-32 overflow-y-auto overscroll-y-contain border-t border-line px-3">{candidates.map(c => <button type="button" key={c.roomId} onClick={() => onOpen(c)} className="flex min-h-12 w-full items-center justify-between gap-2 border-b border-line py-2 text-left last:border-0"><span className="min-w-0 truncate text-sm font-semibold">{destinationTitle(c.room)}</span><span className="shrink-0 text-xs text-mute">빈 자리 {c.seatsLeft} · {formatClock(c.room.departureAt)}</span></button>)}</div>}
+        </section>}
+        <p className="mt-3 text-xs leading-relaxed text-mute">집 주소 대신 역·공공기관 등 모두 찾을 수 있는 공공장소를 선택해 주세요.</p>
         <div className="relative mt-3">
-          <textarea value={note} maxLength={200} onChange={e => setNote(e.target.value)} rows={3}
+          <textarea value={note} maxLength={200} onChange={e => setNote(e.target.value)} rows={2}
             placeholder="예: 정왕역 2번 출구 앞에서 만나요. 짐은 작은 가방 하나예요."
-            className="field min-h-[6rem] resize-none pb-7 leading-relaxed" />
+            className="field min-h-[4.75rem] resize-none pb-7 text-sm leading-relaxed" />
           <span className="pointer-events-none absolute bottom-2.5 right-4 text-xs text-mute">{note.length}/200</span>
         </div>
         <div className="mt-2"><Toggle checked={luggage} onChange={setLuggage} label="큰 짐(캐리어 등) 괜찮아요" /></div>
@@ -717,22 +754,22 @@ function CreateArea({ trip, departureText, busy, onCancel, onCreate }: { trip: T
           요금은 똑같이 나눠요{fare != null && <> · 예상 총 {formatWon(fare)} (다 차면 1인 {formatWon(perPersonFare(fare, CAPACITY)!)})</>}. 출발 {formatTime(trip.desiredDepartureAt)}.
         </p>
       </div>
-      <button type="button" className="btn-ink mt-4 w-full shrink-0" disabled={busy} onClick={() => onCreate(note, luggage, party)}>{busy ? '방을 여는 중…' : '방 만들기'}</button>
+      <button type="button" className="btn-ink mt-3 w-full shrink-0" disabled={busy} onClick={() => onCreate(note, luggage, party)}>{busy ? '방을 여는 중…' : '방 만들기'}</button>
     </div>
   );
 }
 
 // ---------------------------------------------------------------- room introduction (expanded sheet)
 
-function RoomIntro({ candidate, trip, busy, otherTime, departureText, onBack, onJoin }: { candidate: MatchCandidate; trip: TripIntent | null; busy: boolean; otherTime: boolean; departureText: string; onBack(): void; onJoin(): void }) {
+function RoomIntro({ candidate, trip, busy, otherTime, departureText, party, onParty, onBack, onJoin }: { candidate: MatchCandidate; trip: TripIntent | null; busy: boolean; otherTime: boolean; departureText: string; party: number; onParty(n: number): void; onBack(): void; onJoin(): void }) {
   const onError = useErrorHandler();
   const [room, setRoom] = useState<RoomDetail | null>(null);
   useEffect(() => { api.rooms.get(candidate.roomId).then(setRoom).catch(onError); }, [candidate.roomId, onError]);
   const r = room ?? candidate.room;
-  const after = riders(r) + 1;
+  const after = riders(r) + party;
   const perPerson = perPersonFare(r.estimatedTaxiFareWon, after);
   const minutes = trip?.route ? Math.round(minutesOf(trip.route.durationSeconds) + candidate.estimatedDetourMinutes) : null;
-  const cannotJoin = room ? !room.canJoin : false;
+  const cannotJoin = (room ? !room.canJoin : false) || party > r.seatsLeft;
   return (
     <div className="flex min-h-0 flex-1 flex-col pb-[max(20px,env(safe-area-inset-bottom))]">
       <div className="flex shrink-0 items-center justify-between px-6 pt-3">
@@ -762,12 +799,13 @@ function RoomIntro({ candidate, trip, busy, otherTime, departureText, onBack, on
           <Info label="예상 경로">{minutes != null ? `약 ${minutes}분 (추가 이동 약 ${Math.round(candidate.estimatedDetourMinutes)}분)` : '-'}</Info>
           <Info label="큰 짐">{r.terms.luggageAllowed ? '괜찮아요' : '어려워요'}</Info>
         </dl>
+        <div className="mt-3"><PassengerCount value={party} max={r.seatsLeft} onChange={onParty} disabled={busy} /></div>
         <p className="mt-4 pb-4 text-xs leading-relaxed text-mute">{FARE_DISCLAIMER}</p>
       </div>
       <div className="relative shrink-0 px-6 pt-3">
         <div className="pointer-events-none absolute inset-x-0 bottom-full h-8 bg-gradient-to-b from-white/0 to-white" />
         <button type="button" className="btn-ink w-full" disabled={busy || cannotJoin} onClick={onJoin}>
-          {cannotJoin ? '지금은 참여할 수 없는 방이에요' : busy ? '참여하는 중…' : '이 방 선택하기'}
+          {cannotJoin ? '인원·남은 좌석을 확인해 주세요' : busy ? '참여하는 중…' : `${party}명 함께 합류하기`}
         </button>
       </div>
     </div>
@@ -794,15 +832,16 @@ function PlaceNameHint({ children, className = '' }: { children: ReactNode; clas
  * height so the room's expected route is on the map above. "이 방으로 함께 가기" then shows how far its
  * boarding spot is from me (one GPS fix) and lets me join or cancel.
  */
-function RoomPreview({ room: summary, detail, walk, busy, onClose, onGo, onCancelWalk, onConfirm }: {
+function RoomPreview({ room: summary, detail, walk, busy, party, onParty, onClose, onGo, onCancelWalk, onConfirm }: {
   room: RoomSummary; detail: RoomDetail | null; walk: { me: LatLng | null; state: 'locating' | 'ok' | 'nogps'; route?: WalkRoute | null } | null; busy: boolean;
+  party: number; onParty(n: number): void;
   onClose(): void; onGo(): void; onCancelWalk(): void; onConfirm(): void;
 }) {
   const r = detail ?? summary;
-  const cannotJoin = detail ? !detail.canJoin : false;
+  const cannotJoin = (detail ? !detail.canJoin : false) || party > r.seatsLeft;
   // Per-person fare depends on how many end up riding: full room (cheapest) … me joining now (dearest).
   const low = perPersonFare(r.estimatedTaxiFareWon, r.capacity);
-  const high = perPersonFare(r.estimatedTaxiFareWon, riders(r) + 1);
+  const high = perPersonFare(r.estimatedTaxiFareWon, riders(r) + party);
   const fareRange = low == null || high == null ? '-' : low === high ? formatWon(low) : `${formatWon(low).replace('원', '')}~${formatWon(high)}`;
   const pickupName = r.meetingPoint?.name ?? originTitle(r);
   const pickup = r.meetingPoint?.location ?? r.approxOrigin;
@@ -812,7 +851,8 @@ function RoomPreview({ room: summary, detail, walk, busy, onClose, onGo, onCance
 
   if (walk) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col px-6 pb-[max(20px,env(safe-area-inset-bottom))] pt-3">
+      <div className="flex min-h-0 flex-1 flex-col px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-2">
+        <div className="min-h-0 flex-1 overflow-y-auto">
         <button type="button" onClick={onCancelWalk} className="btn-text -ml-1 self-start"><ChevronLeftIcon size={18} /> 방 정보</button>
         <h3 className="mt-4 text-[1.375rem] font-bold tracking-tight">출발지까지 갈 만한 거리인가요?</h3>
         <div className="mt-4 flex flex-col gap-3 rounded-card border border-line px-4 py-4">
@@ -835,10 +875,13 @@ function RoomPreview({ room: summary, detail, walk, busy, onClose, onGo, onCance
                 </>
               )}
         </div>
-        <div className="mt-auto flex gap-3 pt-4">
+        <div className="mt-3"><PassengerCount value={party} max={r.seatsLeft} onChange={onParty} disabled={busy} /></div>
+        <p className="mt-2 text-xs text-mute">합류 후 {riders(r) + party}명 · 1인 예상 {high != null ? formatWon(high) : '정보 없음'}</p>
+        </div>
+        <div className="mt-auto flex shrink-0 gap-3 pt-3">
           <button type="button" className="btn-fog flex-1" onClick={onCancelWalk} disabled={busy}>취소</button>
           <button type="button" className="btn-ink flex-[2]" onClick={onConfirm} disabled={busy || walk.state === 'locating' || cannotJoin}>
-            {busy ? '참여하는 중…' : '참여하기'}
+            {busy ? '참여하는 중…' : `${party}명 합류하기`}
           </button>
         </div>
       </div>
@@ -870,6 +913,7 @@ function RoomPreview({ room: summary, detail, walk, busy, onClose, onGo, onCance
           <div className="rounded-2xl bg-fog-soft px-2 py-3"><p className="text-[0.75rem] text-mute">1인 예상</p><p className="mt-0.5 whitespace-nowrap text-[0.875rem] font-semibold tracking-tight">{fareRange}</p></div>
         </div>
         <p className="mt-2 text-center text-[0.75rem] text-mute">1인 요금은 함께 타는 인원에 따라 달라져요</p>
+        <div className="mt-3"><PassengerCount value={party} max={r.seatsLeft} onChange={onParty} disabled={busy} /></div>
 
         <blockquote className="mt-5 rounded-card bg-fog-soft px-5 py-4 text-[0.9375rem] leading-relaxed">
           {r.terms.note ? `“${r.terms.note}”` : <span className="text-mute">방장이 소개를 남기지 않았어요.</span>}

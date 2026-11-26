@@ -15,11 +15,12 @@ public class RoomController {
     @GetMapping("/mine") public Object mine(@CurrentMember AuthenticatedMember me) { return service.mine(me.memberId()); }
     @GetMapping("/open")
     public Object open(@CurrentMember AuthenticatedMember me,
-            @RequestParam(required=false) Double lat,@RequestParam(required=false) Double lng) {
-        return service.open(me.memberId(),lat,lng);
+            @RequestParam(required=false) Double lat,@RequestParam(required=false) Double lng,
+            @RequestParam(required=false) Integer radiusMeters) {
+        return service.open(me.memberId(),lat,lng,radiusMeters);
     }
     @GetMapping("/{id}") public Object detail(@CurrentMember AuthenticatedMember me,@PathVariable UUID id) { return service.detail(id,me.memberId()); }
-    @PostMapping("/{id}/join") public Object join(@CurrentMember AuthenticatedMember me,@PathVariable UUID id,@Valid @RequestBody RoomRequests.Join r) { return locks.withLock("room:"+id,()->service.join(id,me.memberId(),r.tripId())); }
+    @PostMapping("/{id}/join") public Object join(@CurrentMember AuthenticatedMember me,@PathVariable UUID id,@Valid @RequestBody RoomRequests.Join r) { return locks.withLock("room:"+id,()->service.join(id,me.memberId(),r.tripId(),r.passengerCount())); }
     @PostMapping("/{id}/confirm") public Object confirm(@CurrentMember AuthenticatedMember me,@PathVariable UUID id,@Valid @RequestBody RoomRequests.Confirm r) { return locks.withLock("room:"+id,()->service.confirm(id,me.memberId(),r.termsVersion())); }
     @PutMapping("/{id}/plan") public Object plan(@CurrentMember AuthenticatedMember me,@PathVariable UUID id,@Valid @RequestBody RoomRequests.Plan r) { return locks.withLock("room:"+id,()->service.plan(id,me.memberId(),r)); }
     @PostMapping("/{id}/leave") public Object leave(@CurrentMember AuthenticatedMember me,@PathVariable UUID id) { return locks.withLock("room:"+id,()->service.leave(id,me.memberId())); }
@@ -27,4 +28,5 @@ public class RoomController {
     @PostMapping("/{id}/participants/{memberId}/remove") public Object remove(@CurrentMember AuthenticatedMember me,@PathVariable UUID id,@PathVariable UUID memberId) { return locks.withLock("room:"+id,()->service.remove(id,me.memberId(),memberId)); }
     @PostMapping("/{id}/cancel") public Object cancel(@CurrentMember AuthenticatedMember me,@PathVariable UUID id) { return locks.withLock("room:"+id,()->service.cancel(id,me.memberId())); }
     @PostMapping("/{id}/close") public Object close(@CurrentMember AuthenticatedMember me,@PathVariable UUID id) { return locks.withLock("room:"+id,()->service.close(id,me.memberId())); }
+    @PostMapping("/{id}/finish") public Object finish(@CurrentMember AuthenticatedMember me,@PathVariable UUID id) { return locks.withLock("room:"+id,()->service.finish(id,me.memberId())); }
 }

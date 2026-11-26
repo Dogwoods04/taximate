@@ -3,7 +3,9 @@ package kr.siheung.taximate.trip.api;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import kr.siheung.taximate.common.geo.LatLng;
 
 /**
  * Public API of the trip module (TripIntent + RouteSnapshot). Implemented by the trip module.
@@ -13,6 +15,9 @@ public interface TripApi {
 
     /** Called inside the room transaction; replaces destination and route atomically, or throws ROUTE_UNAVAILABLE. */
     void updateDestination(UUID tripId, UUID memberId, kr.siheung.taximate.common.place.PlaceRef destination);
+
+    /** Called inside the locked room join transaction; preserves the route and changes the owned trip party size. */
+    TripIntentView updatePassengerCount(UUID tripId, UUID memberId, int passengerCount);
 
     /** @throws kr.siheung.taximate.common.error.ApiException NOT_FOUND */
     TripIntentView getTrip(UUID tripId);
@@ -25,6 +30,14 @@ public interface TripApi {
 
     /** Missing ids are skipped. Order not guaranteed. */
     List<TripIntentView> getTrips(Collection<UUID> tripIds);
+
+    /**
+     * Ids of trips whose precise origin lies within {@code radiusMeters} of {@code center} (PostGIS ST_DWithin on the
+     * origin GiST index). Internal, coarse pre-filter for the nearby-room list: ride-room still computes the public
+     * (LocationMasker) distance itself and never exposes the precise origin. Trips whose location was destroyed
+     * never match. {@code center} is request-local and is not stored or logged.
+     */
+    Set<UUID> findTripIdsWithOriginWithin(LatLng center, double radiusMeters);
 
     /**
      * Called by ride-room inside the CONFIRM transaction. Sets status MATCHED for each

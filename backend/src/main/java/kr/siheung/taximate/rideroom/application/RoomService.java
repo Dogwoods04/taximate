@@ -30,8 +30,13 @@ public class RoomService implements RideRoomApi {
     private final LocationMasker masker;
     private final Clock clock;
     private final ApplicationEventPublisher events;
-    public RoomService(RoomRepository rooms,TripApi trips,IdentityApi identity,LocationMasker masker,Clock clock,ApplicationEventPublisher events) {
-        this.rooms=rooms; this.trips=trips; this.identity=identity; this.masker=masker; this.clock=clock; this.events=events;
+    private final NearbyRoomsProperties nearby;
+    private final OngoingRides rides;
+    private final RoomLifecycleProperties lifecycle;
+    public RoomService(RoomRepository rooms,TripApi trips,IdentityApi identity,LocationMasker masker,Clock clock,ApplicationEventPublisher events,NearbyRoomsProperties nearby,
+            OngoingRides rides,RoomLifecycleProperties lifecycle) {
+        this.rooms=rooms; this.trips=trips; this.identity=identity; this.masker=masker; this.clock=clock; this.events=events; this.nearby=nearby;
+        this.rides=rides; this.lifecycle=lifecycle;
     }
     private OffsetDateTime now() { return OffsetDateTime.now(clock); }
     private ApiException error(ErrorCode c) { return new ApiException(c,c.name()); }
@@ -58,6 +63,8 @@ public class RoomService implements RideRoomApi {
         TripIntentView t=trips.getOwnedTrip(tripId,memberId);
         if(!TripStatus.SEARCHABLE.contains(t.status()) || !t.expiresAt().isAfter(now())) throw error(ErrorCode.TRIP_NOT_SEARCHABLE);
         if(!findTripIdsInActiveRooms(List.of(tripId)).isEmpty()) throw error(ErrorCode.ALREADY_IN_ROOM);
+        // A confirmed ride must be finished first (also covers trips created before this rule existed).
+        rides.requireNoRideInProgress(memberId);
         return t;
     }
     private RoomParticipant add(RideRoom r,UUID memberId,TripIntentView t,Role role) {
@@ -93,14 +100,18 @@ public class RoomService implements RideRoomApi {
     private static boolean binary(Gender g) { return g==Gender.MALE || g==Gender.FEMALE; }
     /** Same gender as the room, always. A legacy room without a recorded gender is open to no one new. */
     private boolean eligible(RideRoom r,UUID memberId) { return r.restrictedGender!=null && r.restrictedGender==identity.getGender(memberId); }
-    public RoomDetail join(UUID id,UUID memberId,UUID tripId) {
+    public RoomDetail join(UUID id,UUID memberId,UUID tripId,Integer passengerCount) {
         RideRoom r=lock(id); identity.requireActive(memberId); RoomParticipant existing=participant(id,memberId);
         if(existing!=null && existing.status==Status.ACTIVE) return detail(id,memberId);
         if(!binary(identity.getGender(memberId))) throw error(ErrorCode.GENDER_REQUIRED);
         if(!eligible(r,memberId)) throw error(ErrorCode.GENDER_RESTRICTED);
         if(!RoomStatus.JOINABLE.contains(r.status) || r.hidden || !r.departureWindowEnd.isAfter(now()) || (existing!=null && existing.status==Status.REMOVED)) throw error(ErrorCode.ROOM_NOT_JOINABLE);
         TripIntentView t=searchable(tripId,memberId);
-        if(seats(r)<t.passengerCount()) throw error(ErrorCode.ROOM_FULL);
+        int party=passengerCount==null?t.passengerCount():passengerCount;
+        if(party<1 || party>3) throw new ApiException(ErrorCode.VALIDATION_FAILED,"본인을 포함해 1~3명을 선택해 주세요");
+        if(seats(r)<party) throw error(ErrorCode.ROOM_FULL);
+        // Joins the surrounding transaction: any later failure rolls the trip count back too.
+        t=trips.updatePassengerCount(tripId,memberId,party);
         add(r,memberId,t,Role.MEMBER); r.status=RoomStatus.COORDINATING;
         changed(r,identity.getMember(memberId).nickname()+"님이 참여했습니다"); return detail(id,memberId);
     }
@@ -151,9 +162,10 @@ public class RoomService implements RideRoomApi {
         if(p.role==Role.HOST) throw ApiException.forbidden("Cannot remove host");
         depart(r,p,Status.REMOVED); return detail(id,hostId);
     }
-    private void end(RideRoom r,RoomStatus status) {
+    private void end(RideRoom r,RoomStatus status) { end(r,status,null); }
+    private void end(RideRoom r,RoomStatus status,String text) {
         r.status=status; r.closedAt=now(); active(r.id).forEach(p->trips.releaseToSearching(p.tripId));
-        changed(r,status==RoomStatus.CLOSED?"동승이 종료되었습니다":status==RoomStatus.EXPIRED?"모집 시간이 만료되었습니다":"모집방이 취소되었습니다");
+        changed(r,text!=null?text:status==RoomStatus.CLOSED?"동승이 종료되었습니다":status==RoomStatus.EXPIRED?"모집 시간이 만료되었습니다":"모집방이 취소되었습니다");
         // The ride's purpose is over: destroy precise locations of trips that ended with this room (MATCHED etc.).
         // Trips released back to searching stay ACTIVE and are untouched by the trip module.
         Set<UUID> tripIds=new HashSet<>(); tripIds.add(r.sourceTripId); participants(r.id).forEach(p->tripIds.add(p.tripId));
@@ -163,6 +175,22 @@ public class RoomService implements RideRoomApi {
     public RoomDetail close(UUID id,UUID memberId) {
         RideRoom r=lock(id); host(r,memberId); if(r.status!=RoomStatus.CONFIRMED) throw error(ErrorCode.ROOM_NOT_JOINABLE);
         end(r,RoomStatus.CLOSED); return detail(id,memberId);
+    }
+    /**
+     * 이동 완료: a participant ends their own confirmed ride and may start another one. The host finishing closes
+     * the room for everyone (same as close). Members' other trips stay untouched; this ride's locations are erased.
+     */
+    public RoomDetail finish(UUID id,UUID memberId) {
+        RideRoom r=lock(id);
+        RoomParticipant p=participant(id,memberId);
+        if(!RoomStatus.ACTIVE.contains(r.status) && p!=null) return detail(id,memberId,true); // already ended: nothing left to finish
+        if(p==null || p.status!=Status.ACTIVE) throw ApiException.forbidden("Active participation required");
+        if(r.status!=RoomStatus.CONFIRMED) throw error(ErrorCode.ROOM_NOT_JOINABLE);
+        if(p.role==Role.HOST) { end(r,RoomStatus.CLOSED); return detail(id,memberId); }
+        p.status=Status.FINISHED; p.leftAt=now();
+        trips.eraseEndedLocations(List.of(p.tripId));
+        changed(r,identity.getMember(memberId).nickname()+"님이 이동을 마쳤습니다");
+        return detail(id,memberId,true);
     }
     @EventListener public void tripCancelled(TripCancelledEvent e) {
         List<UUID> ids=em.createQuery("select p.roomId from RoomParticipant p where p.tripId=:trip and p.status=:active",UUID.class)
@@ -193,6 +221,17 @@ public class RoomService implements RideRoomApi {
     }
     public List<UUID> expiring() { return em.createQuery("select r.id from RideRoom r where r.status in :statuses and r.departureWindowEnd<:now",UUID.class).setParameter("statuses",RoomStatus.JOINABLE).setParameter("now",now()).getResultList(); }
     public void expire(UUID id) { RideRoom r=lock(id); if(RoomStatus.JOINABLE.contains(r.status) && r.departureWindowEnd.isBefore(now())) end(r,RoomStatus.EXPIRED); }
+    /** CONFIRMED rooms nobody finished, confirmedAutoCloseMinutes after their departure window ended. */
+    public List<UUID> overdueConfirmed() {
+        return em.createQuery("select r.id from RideRoom r where r.status=:confirmed and r.departureWindowEnd<:before",UUID.class)
+            .setParameter("confirmed",RoomStatus.CONFIRMED).setParameter("before",now().minusMinutes(lifecycle.confirmedAutoCloseMinutes())).getResultList();
+    }
+    /** Safety net: a forgotten confirmed ride ends by itself so it never stays "현재 내 방" or blocks the next ride. */
+    public void autoClose(UUID id) {
+        RideRoom r=lock(id);
+        if(r.status==RoomStatus.CONFIRMED && r.departureWindowEnd.isBefore(now().minusMinutes(lifecycle.confirmedAutoCloseMinutes())))
+            end(r,RoomStatus.CLOSED,"출발 시간이 한참 지나 동행이 자동으로 종료되었습니다");
+    }
     public RoomStatus requireActiveParticipant(UUID id,UUID memberId) { RideRoom r=room(id); requireParticipant(id,memberId); return r.status; }
     public void requireWritable(UUID id,UUID memberId) { RideRoom r=lock(id); requireParticipant(id,memberId); identity.requireActive(memberId); joinable(r); }
     public RoomSummaryDto summary(UUID id) { return summary(room(id)); }
@@ -216,56 +255,91 @@ public class RoomService implements RideRoomApi {
         if(mine==null && !justLeft && !eligible(r,memberId)) throw ApiException.notFound("Room");
         boolean all=active(id).size()>=2 && active(id).stream().allMatch(p->Objects.equals(p.confirmedTermsVersion,r.termsVersion));
         Map<UUID,MemberSnapshot> names=identity.getMembers(ps.stream().map(p->p.memberId).toList());
-        // Non-members see only ACTIVE participants (same Participant shape, no location data); members also see LEFT/REMOVED history.
+        // Non-members see only ACTIVE participants (same Participant shape, no location data); members also see LEFT/REMOVED/FINISHED history.
         List<ParticipantDto> visible=ps.stream().filter(p->mine!=null||p.status==Status.ACTIVE)
             .map(p->new ParticipantDto(p.memberId,names.get(p.memberId).nickname(),p.role,p.status,p.passengerCount,Objects.equals(p.confirmedTermsVersion,r.termsVersion),p.joinedAt)).toList();
         TripIntentView t=trips.getTrip(r.sourceTripId);
         boolean writable=RoomStatus.JOINABLE.contains(r.status), enabled=identity.getMember(memberId).status()==MemberStatus.ACTIVE;
         RoomParticipant previous=ps.stream().filter(p->p.memberId.equals(memberId)).findFirst().orElse(null);
+        // Another confirmed ride not finished yet: this room cannot be joined until it is.
+        UUID ongoing=mine!=null?null:rides.confirmedRoomOf(memberId).filter(other->!other.equals(id)).orElse(null);
         return new RoomDetail(summary(r),mine==null?"NONE":mine.role.name(),mine==null?null:mine.tripId,r.termsVersion,!writable,
-            enabled&&mine==null&&writable&&!r.hidden&&seats(r)>0&&r.departureWindowEnd.isAfter(now())&&(previous==null||previous.status!=Status.REMOVED),
+            enabled&&mine==null&&ongoing==null&&writable&&!r.hidden&&seats(r)>0&&r.departureWindowEnd.isAfter(now())&&(previous==null||previous.status!=Status.REMOVED),
             enabled&&mine!=null&&writable&&r.meetingPoint()!=null&&!Objects.equals(mine.confirmedTermsVersion,r.termsVersion),all,visible,
-            t.route()==null?List.of():masker.trimPathEnds(t.route().path()));
+            t.route()==null?List.of():masker.trimPathEnds(t.route().path()),ongoing);
     }
     public List<RoomSummaryDto> mine(UUID memberId) {
         return em.createQuery("select r from RideRoom r, RoomParticipant p where p.roomId=r.id and p.memberId=:member and p.status=:active and (r.status in :statuses or r.closedAt>=:since) order by r.createdAt desc",RideRoom.class)
             .setParameter("member",memberId).setParameter("active",Status.ACTIVE).setParameter("statuses",RoomStatus.ACTIVE).setParameter("since",now().minusHours(24)).getResultList().stream().map(this::summary).toList();
     }
+    /** Placeholder for an empty JPQL IN list (no trip has this id). */
+    private static final UUID NO_TRIP=new UUID(0L,0L);
+    /** Within this distance a meeting point counts as the room's own origin (the default meeting point). */
+    private static final double SAME_PLACE_METERS=1.0;
+    /**
+     * Home "근처 열린 방": recruiting rooms whose boarding spot is near the caller's reference point.
+     * The boarding spot is the room's meeting point (a public place, exact) or, without one, the host origin
+     * approximated by LocationMasker, never the destination. Distances are rounded to 10 m before filtering and
+     * ordering, so the list, the map pins and the card labels agree. {@code lat}/{@code lng} are request-local
+     * (one-shot GPS fix or a searched place) and are never stored or logged.
+     */
     @Transactional(readOnly=true)
-    public List<RoomSummaryDto> open(UUID memberId,Double lat,Double lng) {
-        if((lat==null)!=(lng==null) || (lat!=null &&
-                (!Double.isFinite(lat) || !Double.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180)))
-            throw new ApiException(ErrorCode.VALIDATION_FAILED,"Provide both lat and lng in valid coordinate ranges");
-        // Bound the Java distance search to the earliest 500 eligible departures.
-        // Caller coordinates are request-local only; host locations cross the TripApi boundary.
-        List<RideRoom> eligible=em.createQuery("""
+    public NearbyRooms open(UUID memberId,Double lat,Double lng,Integer radiusMeters) {
+        if(lat==null || lng==null || !Double.isFinite(lat) || !Double.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180)
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,"Provide lat and lng of the reference point in valid coordinate ranges");
+        int radius=radiusMeters==null?nearby.defaultRadiusMeters():radiusMeters;
+        if(radius < 1 || radius > nearby.maxRadiusMeters())
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,"radiusMeters must be between 1 and "+nearby.maxRadiusMeters());
+        LatLng center=LatLng.of(lat,lng);
+        // A distance up to radius+5 m still rounds to the radius, so the database pre-filters use that reach.
+        double reach=radius+5;
+        // 1) Spatial filtering in the database, before any ordering or limit.
+        //    Without a meeting point the room boards at the host origin: the trip module's GiST index finds those
+        //    origins, widened by the masking error so that every masked origin in range is kept.
+        Set<UUID> hostTrips=new HashSet<>(trips.findTripIdsWithOriginWithin(center,reach+masker.approximationErrorMeters()));
+        if(hostTrips.isEmpty()) hostTrips.add(NO_TRIP);
+        //    With a meeting point the room boards there: a bounding box on the stored coordinates.
+        double dLat=Math.toDegrees(reach/GeoUtils.EARTH_RADIUS_M);
+        double dLng=dLat/Math.max(0.01,Math.cos(Math.toRadians(lat)));
+        List<RideRoom> candidates=em.createQuery("""
                 select r from RideRoom r
-                where r.status in :statuses and r.hidden=false and r.departureWindowEnd>:now
+                where r.status in :statuses and r.hidden=false and r.departureAt>:now
                 and r.restrictedGender=:gender
                 and not exists (select p.id from RoomParticipant p
                     where p.roomId=r.id and p.memberId=:member and p.status=:active)
                 and r.capacity > (select coalesce(sum(p.passengerCount),0) from RoomParticipant p
                     where p.roomId=r.id and p.status=:active)
-                order by r.departureAt,r.id
+                and ((r.meetingPointName is not null
+                        and r.meetingPointLat between :minLat and :maxLat and r.meetingPointLng between :minLng and :maxLng)
+                    or (r.meetingPointName is null and r.sourceTripId in :hostTrips))
                 """,RideRoom.class)
             .setParameter("statuses",RoomStatus.JOINABLE).setParameter("now",now())
-            .setParameter("member",memberId).setParameter("active",Status.ACTIVE)
-            .setParameter("gender",identity.getGender(memberId)).setMaxResults(lat==null?10:500).getResultList();
-        if(lat==null) return eligible.stream().map(this::summary).toList();
-        LatLng caller=LatLng.of(lat,lng);
-        Map<UUID,TripIntentView> hosts=trips.getTrips(eligible.stream().map(r->r.sourceTripId).toList())
+            .setParameter("member",memberId).setParameter("active",Status.ACTIVE).setParameter("gender",identity.getGender(memberId))
+            .setParameter("minLat",lat-dLat).setParameter("maxLat",lat+dLat)
+            .setParameter("minLng",lng-dLng).setParameter("maxLng",lng+dLng)
+            .setParameter("hostTrips",hostTrips).getResultList();
+        // 2) Exact public distance to the boarding spot, then radius, order (distance, departure, id) and limit.
+        Map<UUID,TripIntentView> hosts=trips.getTrips(candidates.stream().map(r->r.sourceTripId).toList())
             .stream().collect(Collectors.toMap(TripIntentView::id,t->t));
-        record Nearby(RideRoom room,TripIntentView trip,double distance) {}
-        return eligible.stream().filter(r->hosts.containsKey(r.sourceTripId))
+        record Nearby(RideRoom room,TripIntentView trip,int distance,String basis) {}
+        List<Nearby> matched=candidates.stream().filter(r->hosts.containsKey(r.sourceTripId))
             .map(r->{
                 TripIntentView t=hosts.get(r.sourceTripId);
-                LatLng origin=masker.approximate(t.origin()==null?null:t.origin().location());
-                return new Nearby(r,t,origin==null?Double.POSITIVE_INFINITY:GeoUtils.distanceMeters(caller,origin));
+                LatLng origin=t.origin()==null?null:t.origin().location();
+                kr.siheung.taximate.common.place.MeetingPointDto point=r.meetingPoint();
+                LatLng boarding=point!=null?point.location():masker.approximate(origin);
+                String basis=point!=null && (origin==null || GeoUtils.distanceMeters(origin,point.location())>SAME_PLACE_METERS)
+                    ?"MEETING_POINT":"ORIGIN";
+                int distance=boarding==null?Integer.MAX_VALUE:masker.roundDistance(GeoUtils.distanceMeters(center,boarding));
+                return new Nearby(r,t,distance,basis);
             })
-            .filter(n->n.distance()<=3000)
-            .sorted(Comparator.comparingDouble(Nearby::distance)
+            .filter(n->n.distance()<=radius)
+            .sorted(Comparator.comparingInt(Nearby::distance)
                 .thenComparing(n->n.room().departureAt).thenComparing(n->n.room().id))
-            .limit(10).map(n->summary(n.room(),n.trip())).toList();
+            .toList();
+        List<NearbyRooms.Room> shown=matched.stream().limit(nearby.maxResults())
+            .map(n->new NearbyRooms.Room(summary(n.room(),n.trip()),n.distance(),n.basis())).toList();
+        return new NearbyRooms(radius,shown,matched.size()>nearby.maxResults());
     }
     @Override public List<RoomMatchView> findJoinableRoomsBySourceTripIds(Collection<UUID> ids,UUID requesterMemberId) {
         if(ids.isEmpty()) return List.of();
