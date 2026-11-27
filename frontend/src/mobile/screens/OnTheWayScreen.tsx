@@ -66,7 +66,7 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
   const chatMinHeight = Math.min(maxSheetHeight(map.size), Math.round(600 * remScale()));
   const sheet = useSheetDrag(map.size, page === 1 && isMember ? Math.max(otwSheetHeight(map.size), chatMinHeight) : otwSheetHeight(map.size), 'otw', false, undefined, { collapsedHeight: 132 });
   const sheetH = sheet.settledHeight;
-  // Typing in the chat with the on-screen keyboard open (Android & co.; iOS pans the page itself):
+  // Typing in the chat with the on-screen keyboard open (including iOS):
   // the sheet covers the whole map with its top just under the back button and drops its header/footer,
   // so the messages and the input fit above the keyboard. Restored when the keyboard closes.
   const keyboard = useKeyboardOpen();
@@ -304,7 +304,7 @@ function OnTheWay({ id, moderation }: { id: string; moderation: boolean }) {
                 onOpenOngoing={() => room.ongoingRideRoomId && navigate(`/rooms/${room.ongoingRideRoomId}`)}
                 joinTrip={joinTrip} party={joinParty} onParty={setJoinParty} onJoin={join} />
             </div>
-            <div className={`flex h-full w-full shrink-0 snap-start flex-col px-6 pb-2 ${chatMode ? 'pt-8' : 'pt-3'}`}>
+            <div className={`flex h-full w-full shrink-0 snap-start flex-col px-6 pb-[max(8px,env(safe-area-inset-bottom))] ${chatMode ? 'pt-8' : 'pt-3'}`}>
               {isMember
                 ? <Chat key={room.id} room={room} onSaved={setRoom} roomId={room.id} readOnly={room.readOnly} messages={messages} myId={member?.id} onSent={m => appendMessages([m])} onReport={setReport} active={page === 1} />
                 : <div className="grid flex-1 place-items-center text-center text-sm text-mute">참여한 사람만 채팅을 볼 수 있어요.</div>}

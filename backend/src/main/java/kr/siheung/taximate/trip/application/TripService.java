@@ -150,6 +150,16 @@ public class TripService implements TripApi {
     @Override @Transactional(readOnly=true)
     public List<TripIntentView> getTrips(Collection<UUID> ids) { return trips.findAllById(ids).stream().map(this::view).toList(); }
     @Override @Transactional
+    public void extendExpiryForRoom(Collection<UUID> ids, OffsetDateTime departureWindowEnd) {
+        ids.stream().distinct().sorted().forEach(id -> {
+            TripIntent t=required(id, true);
+            var minimum=departureWindowEnd.plusMinutes(t.maxWaitMinutes);
+            if (TripStatus.ACTIVE.contains(t.status) && t.expiresAt.isBefore(minimum)) {
+                t.expiresAt=minimum; t.updatedAt=now();
+            }
+        });
+    }
+    @Override @Transactional
     public void markMatched(Collection<UUID> ids) {
         ids.stream().distinct().sorted().forEach(id -> {
             TripIntent t=required(id, true);

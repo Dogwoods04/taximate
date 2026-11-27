@@ -13,6 +13,9 @@ import kr.siheung.taximate.common.geo.LatLng;
  */
 public interface TripApi {
 
+    /** Inside the locked room transaction: extend active trips through the room window plus their normal wait margin. Never shorten or revive. */
+    void extendExpiryForRoom(Collection<UUID> tripIds, OffsetDateTime departureWindowEnd);
+
     /** Called inside the room transaction; replaces destination and route atomically, or throws ROUTE_UNAVAILABLE. */
     void updateDestination(UUID tripId, UUID memberId, kr.siheung.taximate.common.place.PlaceRef destination);
 

@@ -57,7 +57,7 @@ function detect(): Platform {
 
 export const platform: Platform = detect();
 
-/** Tags <html>; on Android also tracks the visual viewport so the app frame shrinks above the keyboard. */
+/** Tags <html> and tracks the visible viewport and keyboard on mobile browsers. */
 export function applyPlatform() {
   const root = document.documentElement;
   root.dataset.platform = platform.kind;
@@ -67,7 +67,7 @@ export function applyPlatform() {
   // the rem-based UI (text, spacing, buttons) ~9% more compact. Decided once at boot, keyboard closed — a
   // media query would shrink the UI whenever the Android keyboard resizes the viewport.
   if (platform.view === 'mobile' && window.innerHeight > 0 && window.innerHeight <= COMPACT_MAX_HEIGHT) root.dataset.density = 'compact';
-  if (platform.view === 'mobile' && platform.kind !== 'ios') trackVisualViewport();
+  if (platform.view === 'mobile') trackVisualViewport();
   watchDeviceEmulation();
 }
 
@@ -108,7 +108,8 @@ let keyboardOpen = false;
 /**
  * Android Chrome (default `resizes-visual`) and some other browsers overlay the keyboard on the page
  * instead of resizing it. We size the app frame to the visual viewport (`--app-h`) so sheets sit above
- * the keyboard, and report whether the keyboard is open. iOS is left alone: Safari pans the page itself.
+ * the keyboard, and report whether the keyboard is open. iOS uses this frame size only while typing;
+ * its normal layout keeps 100dvh so Safari's toolbar resizing remains native.
  */
 function trackVisualViewport() {
   const vv = window.visualViewport;

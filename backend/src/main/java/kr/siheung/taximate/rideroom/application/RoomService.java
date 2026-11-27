@@ -111,14 +111,20 @@ public class RoomService implements RideRoomApi {
         if(party<1 || party>3) throw new ApiException(ErrorCode.VALIDATION_FAILED,"본인을 포함해 1~3명을 선택해 주세요");
         if(seats(r)<party) throw error(ErrorCode.ROOM_FULL);
         // Joins the surrounding transaction: any later failure rolls the trip count back too.
-        t=trips.updatePassengerCount(tripId,memberId,party);
+        if(party!=t.passengerCount()) t=trips.updatePassengerCount(tripId,memberId,party);
         add(r,memberId,t,Role.MEMBER); r.status=RoomStatus.COORDINATING;
         changed(r,identity.getMember(memberId).nickname()+"님이 참여했습니다"); return detail(id,memberId);
     }
     public RoomDetail plan(UUID id,UUID memberId,RoomRequests.Plan plan) {
         RideRoom r=lock(id); host(r,memberId); identity.requireActive(memberId); joinable(r);
+        var previousDeparture=r.departureAt;
         r.departureAt=plan.departureAt(); r.departureWindowEnd=r.departureAt.plusMinutes(trips.getTrip(r.sourceTripId).maxWaitMinutes());
         if(!r.departureWindowEnd.isAfter(now())) throw error(ErrorCode.VALIDATION_FAILED);
+        if(!r.departureAt.isEqual(previousDeparture)) {
+            Set<UUID> tripIds=new HashSet<>(); tripIds.add(r.sourceTripId);
+            active(id).forEach(p->tripIds.add(p.tripId));
+            trips.extendExpiryForRoom(tripIds,r.departureWindowEnd);
+        }
         r.meetingPoint(plan.meetingPoint()); r.terms(plan.terms()); r.termsVersion++;
         active(id).forEach(p->p.confirmedTermsVersion=null); changed(r,"만남 장소와 탑승 조건이 변경되었습니다. 다시 확인해 주세요"); return detail(id,memberId);
     }
@@ -184,6 +190,7 @@ public class RoomService implements RideRoomApi {
         RideRoom r=lock(id);
         RoomParticipant p=participant(id,memberId);
         if(!RoomStatus.ACTIVE.contains(r.status) && p!=null) return detail(id,memberId,true); // already ended: nothing left to finish
+        if(p!=null && p.status==Status.FINISHED) return detail(id,memberId,true);
         if(p==null || p.status!=Status.ACTIVE) throw ApiException.forbidden("Active participation required");
         if(r.status!=RoomStatus.CONFIRMED) throw error(ErrorCode.ROOM_NOT_JOINABLE);
         if(p.role==Role.HOST) { end(r,RoomStatus.CLOSED); return detail(id,memberId); }
@@ -280,7 +287,7 @@ public class RoomService implements RideRoomApi {
      * Home "근처 열린 방": recruiting rooms whose boarding spot is near the caller's reference point.
      * The boarding spot is the room's meeting point (a public place, exact) or, without one, the host origin
      * approximated by LocationMasker, never the destination. Distances are rounded to 10 m before filtering and
-     * ordering, so the list, the map pins and the card labels agree. {@code lat}/{@code lng} are request-local
+     * ordering, so the list and the card labels agree. {@code lat}/{@code lng} are request-local
      * (one-shot GPS fix or a searched place) and are never stored or logged.
      */
     @Transactional(readOnly=true)

@@ -23,7 +23,8 @@ export const selectSheetHeight = (size: Size, mode: 'list' | 'search' | 'detail'
   mode !== 'list' ? maxSheetHeight(size) : Math.max(0, Math.round(Math.min(maxSheetHeight(size), size.h - 240, Math.max(380 * remScale(), size.h * 0.52))));
 
 /** Home defaults to a compact list, with room to reveal the full map by collapsing it. */
-export const homeSheetHeight = (size: Size) => Math.max(0, Math.round(Math.min(maxSheetHeight(size), Math.max(290 * remScale(), size.h * 0.38))));
+// Reserve a complete room card between the search/header controls and the persistent "my room" bar.
+export const homeSheetHeight = (size: Size) => Math.max(0, Math.round(Math.min(maxSheetHeight(size), Math.max(440 * remScale(), size.h * 0.38))));
 
 /** Top safe area + the black back pill (top 48 + 56px high) and a small gap. */
 export const TOP_OVERLAY = 116;

@@ -7,7 +7,7 @@ A confirmed ride lasts until it is finished. While a member is an ACTIVE partici
 - `RoomDetail.ongoingRideRoomId` names that room on other rooms' details and `canJoin` is false there.
 
 The ride ends by:
-- `POST /api/rooms/{id}/finish` (any ACTIVE participant of a CONFIRMED room, "이동 완료"): a member becomes `FINISHED` (leaves "my rooms", locations of that trip erased, system message); the host finishing closes the room for everyone (same as `/close`). Already ended room → 200 with the current detail. Not CONFIRMED → 409 `ROOM_NOT_JOINABLE`.
+- `POST /api/rooms/{id}/finish` (any ACTIVE participant of a CONFIRMED room, "이동 완료"): a member becomes `FINISHED` (leaves "my rooms", locations of that trip erased, system message); the host finishing closes the room for everyone (same as `/close`). Already FINISHED participant or already ended room → 200 with the current detail. Not CONFIRMED → 409 `ROOM_NOT_JOINABLE`.
 - `POST /api/rooms/{id}/close` (host) as before.
 - Automatically: `RoomExpiryJob` closes a CONFIRMED room `taximate.rooms.lifecycle.confirmed-auto-close-minutes` (180) after its `departureWindowEnd`.
 
@@ -29,7 +29,7 @@ The shared-destination recommendation UI, algorithm, DTO and both destination-su
 
 ## 2026-11-14 lead-approved extension
 
-- `POST /api/rooms/{id}/join` accepts `{ tripId, passengerCount?: number }` (1–3, including the account holder). If omitted use the trip count. Validate and update the owned searchable trip and participant atomically under the existing room lock, check total remaining seats, and keep an already-active join idempotent.
+- `POST /api/rooms/{id}/join` accepts `{ tripId, passengerCount?: number }` (1–3, including the account holder). If omitted use the trip count. Validate and update the owned searchable trip and participant atomically under the existing room lock, check total remaining seats, and keep an already-active join idempotent. Update the trip only when the count changes; an unchanged count does not require renewed location consent.
 - Recent destinations/favorites are device-local storage scoped to the member, removable individually and on account withdrawal. Recent history is saved automatically; the save toggle is retired and old disabled settings no longer prevent future saves. Keep at most 12 recent entries; prune entries older than 30 days on the next read. No GPS/map-pick history is saved automatically. Favorites have a 30-entry cap and persist until removed. Destination search results support adding/removing favorites without selecting the destination.
 
 
@@ -79,7 +79,7 @@ ProximityTier 'NEAR' (≤200m) | 'EXTENDED' (200–500m)
 | FarePolicy | EQUAL_SPLIT, DISTANCE_PRORATED, DISCUSS |
 
 ### Trip lifecycle
-`DRAFT →(route ok) SEARCHING ⇄ NO_MATCH`; `SEARCHING|NO_MATCH →(room CONFIRMED) MATCHED`; any active → `CANCELLED` (user / consent withdrawn); active → `EXPIRED` at `desiredDepartureAt + maxWaitMinutes` (scheduler, every minute).
+`DRAFT →(route ok) SEARCHING ⇄ NO_MATCH`; `SEARCHING|NO_MATCH →(room CONFIRMED) MATCHED`; any active → `CANCELLED` (user / consent withdrawn); active → `EXPIRED` at `expiresAt` (initially `desiredDepartureAt + maxWaitMinutes`; room plan changes can extend it as described below; scheduler, every minute).
 A member has at most one trip in {DRAFT, SEARCHING, NO_MATCH} → else 409 `ACTIVE_TRIP_EXISTS`.
 
 ### Room lifecycle
@@ -231,7 +231,7 @@ NEAR = every participant ≤200m straight-line, EXTENDED = ≤500m. Walking rout
 | POST | `/api/rooms/{id}/join` | `{ tripId, passengerCount?: number }` | `RoomDetail`. Under lock `room:{id}` and a transaction with row lock, validate requested count 1–3 (account holder included; omitted uses trip.passengerCount), status ∈ JOINABLE, enough seats, not hidden, trip owned & searchable & not in another room. Update the trip count and participant atomically. Errors `VALIDATION_FAILED`, `ROOM_NOT_JOINABLE`, `ROOM_FULL`, `ALREADY_IN_ROOM`. Same member re-join while ACTIVE → 200 same result without changing the existing count. |
 | POST | `/api/rooms/{id}/leave` | – | `RoomDetail`. MEMBER only, not after CONFIRMED. Host must cancel instead. |
 | POST | `/api/rooms/{id}/participants/{memberId}/remove` | – | `RoomDetail` (host only, before CONFIRMED) |
-| PUT | `/api/rooms/{id}/plan` | `UpdatePlanRequest` | `RoomDetail` (host only, JOINABLE only). termsVersion++ and confirmations cleared. SYSTEM message posted. |
+| PUT | `/api/rooms/{id}/plan` | `UpdatePlanRequest` | `RoomDetail` (host only, JOINABLE only). termsVersion++ and confirmations cleared. SYSTEM message posted. When departure changes, the same locked transaction extends the source and every ACTIVE participant's active trip expiry to at least the new departureWindowEnd + that trip's maxWaitMinutes (the normal creation wait margin); expiry is never shortened. Ended trips are never revived; location erasure still runs at the extended expiry. |
 | PUT | `/api/rooms/{id}/destination` | `UpdateDestinationRequest` | `RoomDetail` (host only, JOINABLE, not hidden). Recalculates host route/fare atomically; termsVersion++ and confirmations cleared. 503 `ROUTE_UNAVAILABLE` rolls back all changes. |
 | POST | `/api/rooms/{id}/confirm` | `{ termsVersion }` | `RoomDetail`. 409 `TERMS_VERSION_MISMATCH` if stale, 409 `MEETING_POINT_REQUIRED`. When everyone confirmed → CONFIRMED, `TripApi.markMatched`. |
 | POST | `/api/rooms/{id}/close` | – | `RoomDetail` (host, from CONFIRMED) |

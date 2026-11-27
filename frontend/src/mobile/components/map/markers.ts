@@ -1,12 +1,11 @@
 import type { LatLng } from '../../../api/contract';
 
-export type MarkerKind = 'me' | 'origin' | 'destination' | 'meeting' | 'room' | 'pickup';
+export type MarkerKind = 'me' | 'origin' | 'destination' | 'meeting' | 'pickup';
 export interface MapMarker {
   position: LatLng;
   kind: MarkerKind;
   label?: string;
   id?: string;
-  count?: number;
   ariaLabel?: string;
   onSelect?: () => void;
 }
@@ -54,8 +53,6 @@ export function markerHtml(m: MapMarker): string {
       // Where I board for my room (meeting point, else the room's start). Rounded square in the route
       // colour so it never reads as the round yellow "me" dot; the label names the place.
       return `<div style="position:relative;width:30px;height:30px;border-radius:9px;background:${ROUTE_COLOR};border:3px solid #fff;box-sizing:border-box;display:grid;place-items:center;box-shadow:0 4px 12px rgba(79,70,229,.45)"><svg width="14" height="14" viewBox="0 0 24 24"><path d="M5 21V4h11l-1.5 4L16 12H7v9" fill="#fff"/></svg>${label(m.label)}</div>`;
-    case 'room':
-      return `<div style="position:relative;width:30px;height:30px;border-radius:50%;background:#FFD966;border:3px solid #151515;box-sizing:border-box;box-shadow:0 2px 6px rgba(0,0,0,.25);display:grid;place-items:center;color:#151515;font:700 12px ${FONT}">${(m.count ?? 0) > 1 ? Math.floor(m.count!) : '<span style="width:7px;height:7px;border-radius:50%;background:#151515"></span>'}${label(m.label)}</div>`;
   }
 }
 

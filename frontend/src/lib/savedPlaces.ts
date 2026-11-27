@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { PlaceRef } from '../api/contract';
+import { useApp } from './app';
 
 export interface SavedPlace extends PlaceRef { storageId: string; usedAt: number }
 interface SavedState { version: 1; recent: SavedPlace[]; favorites: SavedPlace[] }
@@ -64,6 +65,7 @@ export function clearSavedPlaces(memberId?: string) {
 
 /** Named search results only: GPS and map-picked locations are never recorded. */
 export function useSavedPlaces(memberId?: string) {
+  const { toast } = useApp();
   const [snapshot, setSnapshot] = useState(() => ({ memberId, state: read(memberId) }));
   useEffect(() => {
     const refresh = () => setSnapshot({ memberId, state: read(memberId) });
@@ -81,10 +83,15 @@ export function useSavedPlaces(memberId?: string) {
   }, [memberId]);
   const toggleFavorite = useCallback((p: PlaceRef) => {
     if (!validPlace(p)) return;
+    const current = read(memberId);
+    if (current.favorites.length >= MAX_FAVORITES && !current.favorites.some(v => v.storageId === placeId(p))) {
+      toast('즐겨찾기는 30개까지 저장할 수 있어요. 기존 장소를 삭제한 뒤 추가해 주세요.');
+      return;
+    }
     write(memberId, s => ({ ...s, favorites: s.favorites.some(v => v.storageId === placeId(p))
       ? s.favorites.filter(v => v.storageId !== placeId(p))
       : [saved(p), ...s.favorites].slice(0, MAX_FAVORITES) }));
-  }, [memberId]);
+  }, [memberId, toast]);
   const removeRecent = useCallback((id: string) => write(memberId, s => ({ ...s, recent: s.recent.filter(v => v.storageId !== id) })), [memberId]);
   const removeFavorite = useCallback((id: string) => write(memberId, s => ({ ...s, favorites: s.favorites.filter(v => v.storageId !== id) })), [memberId]);
   const clearRecent = useCallback(() => write(memberId, s => ({ ...s, recent: [] })), [memberId]);

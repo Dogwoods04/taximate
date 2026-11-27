@@ -46,7 +46,7 @@ public class TripSpatialQuery implements MatchingTrips {
         if (center == null || !(radiusMeters > 0)) return Set.of();
         return new HashSet<>(jdbc.query("""
                 SELECT t.id FROM trip_intents t
-                WHERE t.origin_geog IS NOT NULL
+                WHERE t.status IN ('SEARCHING','NO_MATCH') AND t.origin_geog IS NOT NULL
                   AND ST_DWithin(t.origin_geog, ST_SetSRID(ST_MakePoint(:lng,:lat),4326)::geography, :radius)
                 """, Map.of("lat", center.lat(), "lng", center.lng(), "radius", radiusMeters),
                 (rs, row) -> rs.getObject("id", UUID.class)));

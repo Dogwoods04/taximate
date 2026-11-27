@@ -97,9 +97,12 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
   const [exiting, setExiting] = useState(false);
   const joinParty = passengerCount;
   const setJoinParty = onPassengerCountChange;
+  const [roomParty, setRoomParty] = useState(passengerCount);
+  const changeRoomParty = (value: number) => { setRoomParty(value); onPassengerCountChange(value); };
   const tripRef = useRef<TripIntent | null>(null);
   const kept = useRef(false);
   const seq = useRef(0);
+  const walkSeq = useRef(0);
   const strip = useRef<HTMLDivElement>(null);
 
   const sheetMode = searching ? 'search' : mode === 'detail' ? 'detail' : mode === 'create' ? 'create' : 'list';
@@ -119,7 +122,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
     tripRef.current = null;
     if (t && !kept.current) void api.trips.cancel(t.id).catch(() => {});
   }, []);
-  useEffect(() => () => dropTrip(), [dropTrip]);
+  useEffect(() => () => { ++seq.current; ++walkSeq.current; dropTrip(); }, [dropTrip]);
 
   // ---- map: my route / chosen points
   const showMine = useCallback((t: TripIntent | null, o: PlaceRef | null, d: PlaceRef | null, h = sheetH) => {
@@ -162,7 +165,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
     } catch (error) {
       if (my !== seq.current) return;
       if (isApiError(error, 'ROUTE_EXPIRED') && !retried) {
-        try { const fresh = await api.trips.route(t.id); tripRef.current = fresh; setTrip(fresh); return loadCandidates(fresh, true); } catch (e) { onError(e); setPhase('noroute'); return; }
+        try { const fresh = await api.trips.route(t.id); if (my !== seq.current) return; tripRef.current = fresh; setTrip(fresh); return loadCandidates(fresh, true); } catch (e) { if (my === seq.current) { onError(e); setPhase('noroute'); } return; }
       }
       if (isApiError(error, 'TRIP_NOT_SEARCHABLE')) { setPhase('unsearchable'); return; }
       onError(error);
@@ -181,17 +184,22 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
     tripRef.current = null;
     setTrip(null);
     if (previous) await api.trips.cancel(previous.id).catch(() => {});
+    if (my !== seq.current) return;
     const body = { origin: o, destination: d, desiredDepartureAt: departureAt(), maxWaitMinutes: 15, maxDetourMinutes: 10, passengerCount: joinParty };
     let t: TripIntent;
     try {
       try { t = await api.trips.create(body); }
       catch (error) {
         if (!isApiError(error, 'ACTIVE_TRIP_EXISTS')) throw error;
+        if (my !== seq.current) return;
         const mine = await api.rooms.mine();
+        if (my !== seq.current) return;
         if (mine.some(r => ROOM_JOINABLE.includes(r.status))) { toast('이미 참여 중인 방이 있어요. 홈의 ‘현재 내 방’에서 확인해 주세요.'); setPhase('idle'); return; }
         // A leftover trip from an earlier, abandoned search: replace it.
         const old = await api.trips.active();
+        if (my !== seq.current) return;
         if (old) await api.trips.cancel(old.id);
+        if (my !== seq.current) return;
         t = await api.trips.create(body);
       }
     } catch (error) { if (my === seq.current) { onError(error); setPhase('idle'); } return; }
@@ -218,14 +226,16 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
 
   useEffect(() => {
     if (initialRoom) {
+      let cancelled = false;
       map.setLayers(roomLayers(initialRoom, []));
       map.fit(roomPoints(initialRoom, []), sheetInsets(selectSheetHeight(map.size, 'list')));
       api.rooms.get(initialRoom.id).then(d => {
+        if (cancelled) return;
         setPreviewDetail(d);
         map.setLayers(roomLayers(d, d.routePreview));
         map.fit(roomPoints(d, d.routePreview), sheetInsets(selectSheetHeight(map.size, 'list')));
-      }).catch(onError);
-      return;
+      }).catch(error => { if (!cancelled) onError(error); });
+      return () => { cancelled = true; };
     }
     showMine(null, null, initialDestination ?? null);
     // Start with the origin search: there is no default origin.
@@ -255,7 +265,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
 
   // ---- detail (room introduction) and joining
   const openDetail = (c: MatchCandidate) => {
-    setJoinParty(Math.max(1, Math.min(joinParty, c.seatsLeft, 3)));
+    setRoomParty(Math.max(1, Math.min(passengerCount, c.seatsLeft, 3)));
     setSelectedId(c.roomId);
     setDetail(c);
     setMode('detail');
@@ -279,16 +289,20 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
   };
   const askJoin = async () => {
     if (!previewRoom) return;
+    const my = ++walkSeq.current;
     setWalk({ me: bias ?? null, state: 'locating' });
     let me = bias ?? null;
-    if (!me) { try { me = await locateOnce(); } catch { setWalk({ me: null, state: 'nogps' }); showWalk(null); return; } }
+    if (!me) { try { me = await locateOnce(); } catch { if (my === walkSeq.current) { setWalk({ me: null, state: 'nogps' }); showWalk(null); } return; } }
+    if (my !== walkSeq.current) return;
     showWalk(me);
     // Walk along real streets (TMAP pedestrian route via the backend); falls back to a straight-line estimate.
     const route = await api.routes.walk(me, pickupOf(previewRoom)).catch(() => null);
+    if (my !== walkSeq.current) return;
     setWalk({ me, state: 'ok', route });
     showWalk(me, route);
   };
   const cancelWalk = () => {
+    ++walkSeq.current;
     setWalk(null);
     if (!previewRoom) return;
     const path = previewDetail?.routePreview ?? [];
@@ -339,7 +353,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
   };
   const join = async (c: MatchCandidate) => {
     if (!trip) return;
-    const joined = await run(() => api.rooms.join(c.roomId, { tripId: trip.id, passengerCount: joinParty }));
+    const joined = await run(() => api.rooms.join(c.roomId, { tripId: trip.id, passengerCount: roomParty }));
     if (joined) { toast('방에 참여했어요!', 'info'); finish(joined, joined.routePreview.length > 1 ? joined.routePreview : c.routePreview); }
   };
   const create = async (note: string, luggageAllowed: boolean, party: number) => {
@@ -388,7 +402,7 @@ export default function SelectSheet({ initialDestination, initialRoom, bias, dep
         {sheet.collapsed ? <div className="flex min-h-14 items-center px-6"><span className="min-w-0 truncate font-semibold">{previewRoom ? destinationTitle(previewRoom) : destination?.name ?? '출발지·도착지 선택'}</span></div> : mode === 'preview' && preview && !searching ? (
           <RoomPreview room={preview} detail={previewDetail} walk={walk} busy={busy} party={joinParty} onParty={setJoinParty} onClose={close} onGo={askJoin} onCancelWalk={cancelWalk} onConfirm={confirmJoin} />
         ) : mode === 'detail' && detail && !searching ? (
-          <RoomIntro candidate={detail} trip={trip} busy={busy} departureText={departureText} party={joinParty} onParty={setJoinParty}
+          <RoomIntro candidate={detail} trip={trip} busy={busy} departureText={departureText} party={roomParty} onParty={changeRoomParty}
             otherTime={!!result?.otherTimeCandidates?.some(c => c.roomId === detail.roomId)} onBack={closeDetail} onJoin={() => join(detail)} />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-1">
@@ -714,6 +728,7 @@ function CreateArea({ trip, candidates, onOpen, departureText, busy, onCancel, o
   const [note, setNote] = useState('');
   /** People riding with the host, host included. At least one seat must stay open for others. */
   const [party, setParty] = useState(Math.min(trip.passengerCount, CAPACITY - 1));
+  useEffect(() => { setParty(Math.min(trip.passengerCount, CAPACITY - 1)); }, [trip.id, trip.passengerCount]);
   const [luggage, setLuggage] = useState(true);
   const [showSimilar, setShowSimilar] = useState(false);
   const fare = trip.route?.taxiFareWon ?? null;

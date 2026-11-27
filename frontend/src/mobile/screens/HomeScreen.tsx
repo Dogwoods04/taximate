@@ -14,7 +14,7 @@ import { FramePortal, Sheet, useSlideIn } from '../components/ui';
 import { DateTimePicker, formatLocalChoice, roundUp5 } from '../components/DateTimePicker';
 import SelectSheet, { PlaceResults } from './SelectSheet';
 import { SheetHandle, useSheetDrag } from './useSheetDrag';
-import { homeSheetHeight } from './layout';
+import { homeSheetHeight, sheetTopLimit } from './layout';
 
 export type DepartureChoice = { kind: 'now' } | { kind: 'plus'; minutes: 15 | 30 } | { kind: 'custom'; local: string };
 export const departureDate = (d: DepartureChoice): Date =>
@@ -33,8 +33,6 @@ const gpsFailure = (error: unknown): GpsFailure => {
   if (error instanceof Error && error.message === 'unsupported') return 'unsupported';
   return (error as { code?: unknown } | null)?.code === 1 ? 'denied' : 'unavailable'; // 1 = GeolocationPositionError.PERMISSION_DENIED
 };
-/** The spot a room boards at, matching the server: meeting point when set, else the masked origin. */
-const boardingPoint = (r: RoomSummary) => r.meetingPoint?.location ?? r.approxOrigin;
 const boardingName = (r: NearbyRoom) => (r.distanceBasis === 'MEETING_POINT' && r.meetingPoint ? r.meetingPoint.name : originTitle(r));
 /** Straight-line distance from the server; never called a walking distance. */
 const distanceText = (r: NearbyRoom) => {
@@ -64,10 +62,9 @@ export default function HomeScreen() {
   const [select, setSelect] = useState<{ destination?: PlaceRef; room?: RoomSummary; key: number } | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [gpsNotice, setGpsNotice] = useState(false);
-  const [pinRooms, setPinRooms] = useState<NearbyRoom[] | null>(null);
   const sheet = useSheetDrag(map.size, homeSheetHeight(map.size), 'home', false, undefined, { collapsedHeight: 152 });
   const panelH = sheet.height;
-  const homeInsets = useCallback(() => ({ top: 80, left: 24, right: 24, bottom: sheet.settledHeight + 12 }), [sheet.settledHeight]);
+  const homeInsets = useCallback(() => ({ top: sheetTopLimit(), left: 24, right: 24, bottom: sheet.settledHeight + 12 }), [sheet.settledHeight]);
 
   /** One GPS fix (after location consent): on Home entry, "현재 위치 다시 확인" and the recenter button. Memory only. */
   const locate = useCallback(async (): Promise<LatLng | null> => {
@@ -107,39 +104,22 @@ export default function HomeScreen() {
   }, [refKey, radius, reload]);
 
   const nearRooms = nearby.state === 'ok' ? nearby.data.rooms : null;
-  // Where I board for my active room: shown on every screen as the square "pickup" marker.
-  const pickup = myRoom ? (myRoom.meetingPoint ? { position: myRoom.meetingPoint.location, label: myRoom.meetingPoint.name } : { position: myRoom.approxOrigin, label: myRoom.originName || '내 방 출발지' }) : null;
-
-  // Home map layers (re-applied whenever the Select sheet closes). Pins are exactly the listed rooms.
+  // Home shows only my one-shot GPS fix; room locations remain on the text cards.
   useEffect(() => {
     if (select || leaving) return;
-    // Rooms boarding at the same (masked or public) point share one numbered pin that opens a chooser.
-    const groups = new Map<string, NearbyRoom[]>();
-    for (const room of nearRooms ?? []) {
-      const at = boardingPoint(room), key = `${at.lat.toFixed(5)},${at.lng.toFixed(5)}`;
-      groups.set(key, [...(groups.get(key) ?? []), room]);
-    }
-    const markers: MapMarker[] = [...groups.entries()].map(([id, rooms]) => ({
-      id, position: boardingPoint(rooms[0]), kind: 'room', count: rooms.length,
-      ariaLabel: rooms.length > 1 ? `이 위치의 동행방 ${rooms.length}개 보기` : `${boardingName(rooms[0])}에서 ${destinationTitle(rooms[0])} 동행방 보기`,
-      onSelect: () => rooms.length === 1 ? openRoom(rooms[0]) : setPinRooms(rooms),
-    }));
-    if (basis.kind === 'place') markers.push({ position: basis.place.location, kind: 'origin', label: basis.place.name ?? '선택한 출발지' });
+    const markers: MapMarker[] = [];
     if (gps.state === 'ok') markers.push({ position: gps.point, kind: 'me' });
-    if (pickup && myRoom) markers.push({ ...pickup, kind: 'pickup', ariaLabel: '현재 내 방 열기', onSelect: () => navigate(`/rooms/${myRoom.id}`) });
     map.setLayers({ markers });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [select, leaving, gps, basis, nearby, myRoom]);
+  }, [select, leaving, gps]);
 
   // Centre on the reference point. In place mode a new GPS fix moves only the "me" dot (and the recenter button).
   const center = basis.kind === 'place' ? basis.place.location : gps.state === 'ok' ? gps.point : SIHEUNG_CITY_HALL;
   const gpsKey = gps.state === 'ok' ? `${gps.point.lat},${gps.point.lng}` : gps.state;
-  const focusKey = basis.kind === 'place' && !pickup ? `place:${refKey}` : `gps:${gpsKey}`;
+  const focusKey = basis.kind === 'place' ? `place:${refKey}` : `gps:${gpsKey}`;
   useEffect(() => {
     if (select || leaving || sheet.dragging || focusKey === 'gps:pending') return;
-    // With an active room, frame me and my boarding spot together so I can walk there by the map.
-    if (pickup && gps.state === 'ok') map.fit([gps.point, pickup.position], homeInsets());
-    else map.focus(center, homeInsets(), 'street');
+    map.focus(center, homeInsets(), 'street');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [select, leaving, focusKey, sheet.dragging, sheet.settledHeight, myRoom]);
 
@@ -161,21 +141,26 @@ export default function HomeScreen() {
   const resetRadius = () => setRange(null);
 
   /** One ride at a time: a recruiting room or a confirmed ride that is not finished blocks starting another. */
-  const busyWithRoom = () => {
-    if (!myRoom) return false;
-    toast(myRoom.status === 'CONFIRMED'
+  const busyWithRoom = async () => {
+    let current: RoomSummary | undefined;
+    try {
+      const mine = await api.rooms.mine();
+      current = mine.find(r => ACTIVE_ROOM.includes(r.status));
+      setMyRoom(current ?? null);
+    } catch (error) { onErrorRef.current(error); return true; }
+    if (!current) return false;
+    toast(current.status === 'CONFIRMED'
       ? '확정된 동행이 아직 진행 중이에요. 이동을 마치고 ‘이동 완료’를 누르면 새 동행을 시작할 수 있어요.'
       : '이미 참여 중인 방이 있어요. 아래 ‘현재 내 방’에서 확인해 주세요.');
     return true;
   };
-  const openSelect = (destination?: PlaceRef) => {
-    if (busyWithRoom()) return;
+  const openSelect = async (destination?: PlaceRef) => {
+    if (await busyWithRoom()) return;
     setSelect({ destination, key: Date.now() });
   };
   /** Room card: open that room's introduction directly. */
-  const openRoom = (room: RoomSummary) => {
-    if (busyWithRoom()) return;
-    setPinRooms(null);
+  const openRoom = async (room: RoomSummary) => {
+    if (await busyWithRoom()) return;
     setSelect({ room, key: Date.now() });
   };
 
@@ -256,14 +241,6 @@ export default function HomeScreen() {
           </>
         )}
       </section>
-
-      {pinRooms && <Sheet title={`이 위치의 동행방 ${pinRooms.length}개`} onClose={() => setPinRooms(null)}>
-        <div className="space-y-2">
-          {pinRooms.map(room => <button key={room.id} type="button" onClick={() => openRoom(room)} className="flex w-full items-center gap-3 rounded-2xl bg-fog-soft p-4 text-left">
-            <span className="min-w-0 flex-1"><span className="block truncate font-semibold">{destinationTitle(room)}</span><span className="mt-1 block truncate text-xs text-mute">{boardingName(room)} · {distanceText(room)} · {formatDepartureRelative(room.departureAt)} · 빈 자리 {room.seatsLeft}</span></span><ChevronRightIcon size={18} />
-          </button>)}
-        </div>
-      </Sheet>}
 
       {pickingBasis && <Sheet title="출발지 직접 선택" tall onClose={() => setPickingBasis(false)}>
         <p className="text-sm leading-relaxed text-mute">고른 장소 근처에서 모집 중인 방을 보여 드려요. 현재 위치로 취급하거나 저장하지 않아요.</p>
@@ -419,7 +396,7 @@ function MyRoomBar({ room, onOpen }: { room: RoomSummary | null | undefined; onO
 
 function DeparturePicker({ value, passengerCount, onChange, onClose }: { value: DepartureChoice; passengerCount: number; onChange(v: DepartureChoice, count: number): void; onClose(): void }) {
   const [choice, setChoice] = useState<DepartureChoice>(value);
-  const [party, setParty] = useState(Math.max(1, Math.min(2, passengerCount)));
+  const [party, setParty] = useState(Math.max(1, Math.min(3, passengerCount)));
   const [custom, setCustom] = useState(() => value.kind === 'custom' ? value.local : toLocalInput(roundUp5(new Date(Date.now() + 60 * 60000))));
   const [picking, setPicking] = useState(false);
   const [timeError, setTimeError] = useState('');
@@ -480,7 +457,7 @@ function DeparturePicker({ value, passengerCount, onChange, onClose }: { value: 
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm font-semibold">함께 타는 인원</span>
           <div role="radiogroup" aria-label="함께 타는 인원, 본인 포함" className="flex rounded-full bg-fog p-1">
-            {[1, 2].map(count => <button key={count} type="button" role="radio" aria-checked={party === count} onClick={() => setParty(count)}
+            {[1, 2, 3].map(count => <button key={count} type="button" role="radio" aria-checked={party === count} onClick={() => setParty(count)}
               className={`h-10 min-w-12 rounded-full px-3 text-sm font-semibold transition ${party === count ? 'bg-ink text-white' : 'text-mute-dark'}`}>{count}명</button>)}
           </div>
         </div>
@@ -511,7 +488,7 @@ function Menu({ onClose }: { onClose(): void }) {
               <div className="text-xs text-mute">{member?.status === 'RESTRICTED' ? '이용이 제한된 계정 · 조회만 가능' : member?.role === 'ADMIN' ? '운영자' : '택시메이트 이웃'}{isMock && ' · MOCK'}</div>
             </div>
           </div>
-          <ul className="mt-12 space-y-1">
+          <ul className="mt-6 min-h-0 flex-1 overflow-y-auto space-y-1">
             {items.map(([label, path]) => (
               <li key={path}>
                 <button type="button" onClick={() => go(path)} className="flex w-full items-center justify-between py-3 text-left text-[1.75rem] font-bold tracking-tight transition active:opacity-50">

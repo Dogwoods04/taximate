@@ -34,7 +34,7 @@ export default function GenderStep({ onDone, profile = false }: { onDone?(member
   };
   // Keep the scroll viewport inside the fixed-height app frame; let only its content grow.
   return <div className="h-full min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-ink text-white">
-    <div className="flex min-h-full flex-col px-6 pb-[max(32px,env(safe-area-inset-bottom))] pt-12">
+    <div className="flex min-h-full flex-col px-6 pb-[max(32px,env(safe-area-inset-bottom))] pt-[max(48px,env(safe-area-inset-top))]">
     {profile && <button type="button" onClick={() => navigate('/')} className="self-start py-3 text-white/70">← 돌아가기</button>}
     <p className="mt-10 text-[0.9375rem] font-semibold text-sun">{profile ? '내 정보' : '2 / 4'}</p>
     {profile && <section className="mt-6 space-y-3">
