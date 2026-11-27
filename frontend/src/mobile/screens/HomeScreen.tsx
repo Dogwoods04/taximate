@@ -13,8 +13,7 @@ import { ArrowIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, LocateIcon, Me
 import { FramePortal, Sheet, useSlideIn } from '../components/ui';
 import { DateTimePicker, formatLocalChoice, roundUp5 } from '../components/DateTimePicker';
 import SelectSheet, { PlaceResults } from './SelectSheet';
-import { SheetHandle, useSheetDrag } from './useSheetDrag';
-import { homeSheetHeight, sheetTopLimit } from './layout';
+import { sheetTopLimit } from './layout';
 
 export type DepartureChoice = { kind: 'now' } | { kind: 'plus'; minutes: 15 | 30 } | { kind: 'custom'; local: string };
 export const departureDate = (d: DepartureChoice): Date =>
@@ -62,9 +61,17 @@ export default function HomeScreen() {
   const [select, setSelect] = useState<{ destination?: PlaceRef; room?: RoomSummary; key: number } | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [gpsNotice, setGpsNotice] = useState(false);
-  const sheet = useSheetDrag(map.size, homeSheetHeight(map.size), 'home', false, undefined, { collapsedHeight: 152 });
-  const panelH = sheet.height;
-  const homeInsets = useCallback(() => ({ top: sheetTopLimit(), left: 24, right: 24, bottom: sheet.settledHeight + 12 }), [sheet.settledHeight]);
+  // Fixed bottom panel (no drag); the map fades and blurs into it.
+  const panel = useRef<HTMLDivElement>(null);
+  const [panelH, setPanelH] = useState(360);
+  useEffect(() => {
+    const node = panel.current;
+    if (!node) return;
+    const ro = new ResizeObserver(() => setPanelH(node.offsetHeight));
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, []);
+  const homeInsets = useCallback(() => ({ top: sheetTopLimit(), left: 24, right: 24, bottom: panelH + 40 }), [panelH]);
 
   /** One GPS fix (after location consent): on Home entry, "현재 위치 다시 확인" and the recenter button. Memory only. */
   const locate = useCallback(async (): Promise<LatLng | null> => {
@@ -118,16 +125,17 @@ export default function HomeScreen() {
   const gpsKey = gps.state === 'ok' ? `${gps.point.lat},${gps.point.lng}` : gps.state;
   const focusKey = basis.kind === 'place' ? `place:${refKey}` : `gps:${gpsKey}`;
   useEffect(() => {
-    if (select || leaving || sheet.dragging || focusKey === 'gps:pending') return;
+    if (select || leaving || focusKey === 'gps:pending') return;
     map.focus(center, homeInsets(), 'street');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [select, leaving, focusKey, sheet.dragging, sheet.settledHeight, myRoom]);
+  }, [select, leaving, focusKey, panelH, myRoom]);
 
+  // Keep Kakao's logo above the bottom panel and its 144px fade.
   useEffect(() => {
     if (select || leaving) return;
-    map.setAttributionInset(panelH, sheet.dragging);
-    map.setCover(sheet.progress * 0.3, sheet.dragging);
-  }, [map, select, leaving, panelH, sheet.dragging, sheet.progress]);
+    map.setAttributionInset(panelH + 144);
+    map.setCover(0);
+  }, [map, select, leaving, panelH]);
 
   const recenter = async () => {
     const point = await locate();
@@ -171,11 +179,6 @@ export default function HomeScreen() {
   };
 
   const basisLabel = basis.kind === 'place' ? '선택한 출발지 기준' : '현재 위치 기준';
-  const collapsedText = !reference
-    ? (basis.kind === 'gps' && gps.state === 'pending' ? '현재 위치를 확인하고 있어요…' : '현재 위치를 확인하지 못했어요 · 위로 끌어 확인')
-    : nearby.state === 'ok' ? `${basisLabel} ${formatRadius(nearby.data.radiusMeters)} 이내 ${nearby.data.rooms.length}${nearby.data.hasMore ? '+' : ''}개 · 핀을 눌러 확인`
-    : nearby.state === 'error' ? '방 목록을 불러오지 못했어요 · 위로 끌어 다시 시도'
-    : `${basisLabel}으로 찾는 중…`;
   const hidden = !!select;
   return (
     <div className="pointer-events-none absolute inset-0">
@@ -194,33 +197,28 @@ export default function HomeScreen() {
       {/* recenter, bottom-left of the visible map */}
       <button type="button" onClick={recenter} aria-label="내 위치로 이동"
         className={`round-btn pointer-events-auto absolute left-6 z-10 h-12 w-12 transition duration-300 ${hidden ? 'pointer-events-none opacity-0' : ''}`}
-        style={{ bottom: panelH + 16, ...(sheet.dragging ? { transition: 'none' } : {}) }}>
+        style={{ bottom: panelH + 20 }}>
         <LocateIcon size={22} />
       </button>
 
-      <section data-draggable-sheet aria-label="근처 동행방" style={sheet.style}
-        className={`ease-sheet pointer-events-auto absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-sheet bg-white shadow-sheet transition-[height,transform,opacity] duration-500 ${hidden ? 'pointer-events-none translate-y-16 opacity-0' : ''}`}>
-        <SheetHandle controls={sheet} />
-        <div className="shrink-0 px-5">
-          <WhereTo label={departureLabel(departure)} passengerCount={passengerCount} onOpen={() => openSelect()} onTime={() => setPicking(true)} />
-        </div>
-        {sheet.collapsed ? (
-          <div className="flex min-h-0 flex-1 items-center justify-between gap-3 px-5 pb-[env(safe-area-inset-bottom)] text-xs text-mute">
-            <span className="min-w-0 truncate">{collapsedText}</span>
-            {myRoom && <button type="button" className="shrink-0 rounded-full bg-sun px-3 py-2 font-semibold text-ink" onClick={() => navigate(`/rooms/${myRoom.id}`)}>내 방</button>}
+      {/* fixed bottom panel; the map fades and blurs into it */}
+      <section ref={panel} aria-label="근처 동행방"
+        className={`ease-sheet pointer-events-auto absolute inset-x-0 bottom-0 transition duration-500 ${hidden ? 'pointer-events-none translate-y-16 opacity-0' : ''}`}>
+        <div className="pointer-events-none absolute inset-x-0 bottom-full h-36 bg-gradient-to-b from-white/0 via-white/70 to-white" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-full h-36 backdrop-blur-[6px] [mask-image:linear-gradient(to_bottom,transparent,black)]" />
+        <div className="relative bg-white">
+          <div className="px-5 pt-1">
+            <WhereTo label={departureLabel(departure)} passengerCount={passengerCount} onOpen={() => openSelect()} onTime={() => setPicking(true)} />
           </div>
-        ) : (
-          <>
-            {/* The basis stays in view while the list scrolls. */}
-            <div className="shrink-0 px-5 pt-3">
-              <NearbyHeader basis={basis} label={basisLabel} nearby={nearby} radius={radius}
-                onPickPlace={() => setPickingBasis(true)} onUseGps={measureFromGps} onResetRadius={resetRadius} />
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-2">
+          <div className="px-5 pt-3">
+            <NearbyHeader basis={basis} label={basisLabel} nearby={nearby} radius={radius}
+              onPickPlace={() => setPickingBasis(true)} onUseGps={measureFromGps} onResetRadius={resetRadius} />
+          </div>
+          <div className="px-5 pb-2">
               {!reference ? (
                 basis.kind === 'gps' && gps.state === 'failed'
                   ? <LocationProblem reason={gps.reason} onRetry={measureFromGps} onPickPlace={() => setPickingBasis(true)} />
-                  : <RoomCards rooms={null} onPick={openRoom} expanded={sheet.expanded} loadingText="현재 위치를 확인하고 있어요…" />
+                  : <RoomCards rooms={null} onPick={openRoom} loadingText="현재 위치를 확인하고 있어요…" />
               ) : nearby.state === 'error' ? (
                 <EmptyBox title="방 목록을 불러오지 못했어요" text="연결 상태를 확인한 뒤 다시 시도해 주세요.">
                   <button type="button" className="btn-fog h-10 px-3 text-[0.8125rem]" onClick={() => setReload(n => n + 1)}>다시 불러오기</button>
@@ -232,14 +230,13 @@ export default function HomeScreen() {
                 </EmptyBox>
               ) : (
                 <>
-                  <RoomCards rooms={nearRooms} onPick={openRoom} expanded={sheet.expanded} />
+                  <RoomCards rooms={nearRooms} onPick={openRoom} />
                   {nearby.state === 'ok' && nearby.data.hasMore && <p className="mt-2 text-xs text-mute">가까운 순서로 {nearby.data.rooms.length}개까지 보여 드려요.</p>}
                 </>
               )}
-            </div>
-            <MyRoomBar room={myRoom} onOpen={() => myRoom && navigate(`/rooms/${myRoom.id}`)} />
-          </>
-        )}
+          </div>
+        </div>
+        <MyRoomBar room={myRoom} onOpen={() => myRoom && navigate(`/rooms/${myRoom.id}`)} />
       </section>
 
       {pickingBasis && <Sheet title="출발지 직접 선택" tall onClose={() => setPickingBasis(false)}>
